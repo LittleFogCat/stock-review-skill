@@ -168,8 +168,12 @@ def resolve_shell_profile() -> Path:
 
     if shell == "zsh":
         return home / ".zshrc"
+    # NOTE: Use .profile for bash because .bashrc typically has a
+    # non-interactive guard ([ -z "$PS1" ] && return) that prevents
+    # env vars from loading in CI/CD, SSH commands, and subprocess
+    # shells. .profile is the POSIX standard and has no such guard.
     if shell == "bash":
-        return home / ".bashrc"
+        return home / ".profile"
     return home / ".profile"
 
 

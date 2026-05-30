@@ -73,7 +73,7 @@ user-invocable: true
 当 JSON 的 `reason` 或 `content` 字段中出现中文左引号（"）或右引号（"）时，Python 的 `json.dumps` 可能将其视为字符串结束符，导致 `JSONDecodeError`。**解决办法**：使用 Python 的 `json.dump(data, f, ensure_ascii=False, indent=2)` 从代码输出 JSON，避免手写时引入未转义的特殊引号。`"喝酒吃药"` 等短语应写为 `'喝酒吃药'` 或使用「」替代。
 
 ### 网络数据源阻截
-腾讯行情 API（`qt.gtimg.cn`）通常稳定可用且无需 cookie/user-agent 处理。东方财富 API 可能对无浏览器头的 curl 请求返回空响应。东财网页版嵌入了大量 iframe，浏览器 snapshot 可能超时。详见 [数据源参考](./references/data_sources.md)。
+腾讯行情 API（`qt.gtimg.cn`）通常稳定可用且无需 cookie/user-agent 处理。东方财富 API 可能对无浏览器头的 curl 请求返回空响应。东财网页版嵌入了大量 iframe，浏览器 snapshot 可能超时。详见 [数据源参考](./references/data_source.md)。
 
 ### 交易日判断
 周末或节假日复盘时，对象日期回退到最近一个交易日。非交易日时段没有盘面数据更新，获取的指数为上一交易日收盘值。
