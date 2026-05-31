@@ -22,6 +22,7 @@ user-invocable: true
 - 当日复盘以 9:00 至次日 9:00 为一个复盘周期；例如 7 月 12 日上午 7:00 复盘，对象日期为 7 月 11 日。
 - 历史复盘以用户指定日期的 9:00 至次日 9:00 为消息与盘面收集范围。
 - 每日 9:00 至 16:00 交易时段内不执行当日复盘；该限制不适用于历史复盘。
+- **跨周末复盘**：若复盘对象日期为周五，且当前时间在周六/周日/周一，则「消息面」应扩展收集周六至周一的周末新闻（不限于周五 9:00→次日 9:00 窗口）。将周末重大事件单独列为「周末要闻」板块，补充到消息面中。关注的重点包括：周五晚间美股的映射表现、周末政策/产业事件（如 IPO 上会）、中东地缘局势变化、以及下周一可能影响开盘的情绪催化。
 - 若 `config.yml` 中的 `review.upload.enabled=true`，或用户通过命令行/环境变量显式启用了上传，则执行上报前必须先向用户索取 apiKey，用于复盘上报鉴权。
 - 若已启用上传且本地尚未持久化 `STOCK_REVIEW_API_KEY`，或用户要求更新凭证，必须先运行 `python ./scripts/stock_review_cli.py set-api-key`，由脚本在终端中安全读取 apiKey 并持久化到本地环境变量 `STOCK_REVIEW_API_KEY`。
 - 不要把 apiKey 直接写入自然语言回复、日志、markdown、JSON 或命令行历史；优先让用户在脚本提示中输入。
@@ -46,12 +47,12 @@ user-invocable: true
 1. 确定复盘对象日期，并据此判断是当日复盘还是历史复盘。
 2. 先读取 `config.yml` 中的 `review.upload.enabled`；若其为 `true`，或用户通过命令行/环境变量显式启用了上传，再确认用户是否已提供 apiKey。若未提供或本地环境变量 `STOCK_REVIEW_API_KEY` 缺失，则先运行 `python ./scripts/stock_review_cli.py set-api-key` 完成持久化。若此时用户仍不提供 apiKey，则立即终止上报流程；若未启用上传，则跳过此步骤。
 3. 收集复盘对象日期对应的盘面数据、板块表现、个股异动和政经新闻。
-4. 优先从以下来源收集信息：东方财富、同花顺、澎湃财经、新华社、财联社，以及其他相关政经网站。
+4. 优先从以下来源收集信息：财联社电报（cls.cn/telegraph，首推，SSR 渲染浏览器可直接读取）、金融界股票首页（stock.jrj.com.cn，聚合 A 股头条/公告速递/7x24 小时电报，周末新闻也覆盖）、腾讯行情 API（qt.gtimg.cn，指数数据最轻量）、澎湃财经、新华社。
 5. 在写入 markdown 和 JSON 前，先逐项核对将要输出的关键事实是否在本次收集结果中有明确依据；若某条事实只来自示例、模板记忆、模糊印象，或无法追溯到已收集来源，则不得写入结果。
 6. 基于经过核对的结果生成复盘 markdown 文档，格式参考 [文档模板](./assets/review_doc_template.md)。
 7. 生成结构化 JSON，字段与示例参考 [JSON 模型](./references/review_model.md) 和 [JSON 示例](./assets/review_sample.json)，并将 JSON 落盘为本地文件，例如 `stock_review_<date>.json`。
 8. 在上报前，复查 markdown 与 JSON 的事实一致性，确认两者没有互相矛盾、没有把示例内容误写成真实事实、没有出现无法证实的结论。
-9. 若已启用上传，生成 JSON 后必须立即运行 `python ./scripts/stock_review_cli.py report --json-file <json文件路径>` 执行真实 `POST` 请求，不得仅以自然语言描述接口调用步骤代替实际执行；若未启用上传，则跳过该步骤。
+9. 若已启用上传，生成 JSON 后必须立即运行 `python ./scripts/stock_review_cli.py report --json-file <json文件路径>` 执行真实 `POST` 请求，不得仅以自然语言描述接口调用步骤代替实际执行；若未启用上传，则跳过该步骤。注意：命令中可能需要用 `python3` 代替 `python`。
 10. 若已启用上传，只有在第 9 步上报成功后，完整复盘流程才算完成；若上报失败，必须向用户明确返回失败信息，而不是将流程描述为已完成。若未启用上传，则 markdown 与 JSON 生成完成即可视为流程完成。
 11. 汇总返回给用户时，应包含 markdown 正文、JSON 结果，以及脚本上报成功、失败或已按配置跳过上报的实际结果。
 
@@ -86,3 +87,14 @@ user-invocable: true
 
 ### 交易日判断
 周末或节假日复盘时，对象日期回退到最近一个交易日。非交易日时段没有盘面数据更新，获取的指数为上一交易日收盘值。
+
+### Shell profile 非交互 guard 导致 env var 不生效
+`stock_review_cli.py set-api-key` 将 `STOCK_REVIEW_API_KEY` 写入 shell profile。各 shell 的默认 profile 文件有不同行为：
+- `.bashrc` 通常顶部有 `[ -z "$PS1" ] && return`，非交互 shell 中 `source ~/.bashrc` 会直接返回，export 语句不会执行
+- `.profile` / `.bash_profile` 无此 guard，非交互 shell 也能正常加载
+
+**解决办法：** 如果 `report` 命令报 `STOCK_REVIEW_API_KEY is not configured` 但 key 确实已写入 `.bashrc`，需改用 `source ~/.profile` 或在命令中直接 export 该变量。长期 fix 是将 `resolve_shell_profile()` 中 bash 的目标改为 `.profile`。
+
+### Python CLI 执行失败：python 命令不存在
+部分现代 Linux 发行版（如 Ubuntu 20.04+）默认不安装 `python` 符号链接，仅提供 `python3`。直接运行 `python ./scripts/stock_review_cli.py` 会报 `command not found`。
+**解决办法：** 如果 `python` 未找到，尝试 `python3`。CLI 脚本头部可以不依赖 shebang，用 `python3 ./scripts/stock_review_cli.py` 显式调用即可。也可在流程开始时检查 `which python || which python3` 确定可用解释器。
