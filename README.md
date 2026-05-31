@@ -8,7 +8,7 @@
 - 生成结构化复盘 JSON
 - 汇总今日热点、消息面、明日关注板块与个股
 - 支持历史日期复盘
-- 支持按既定 API 上报复盘结果
+- 支持按配置决定是否上报复盘结果
 
 ## 仓库结构
 
@@ -45,6 +45,60 @@ stock-review-skill/
 
 复制后，目标目录中应直接包含 `SKILL.md`、`assets/`、`references/`，不要再额外嵌套一层仓库目录。
 
+## 本地配置
+
+仓库提交的是示例配置文件 `config.example.yml`，本地实际使用的 `config.yml` 不纳入 Git 版本控制。
+
+推荐做法：
+
+```text
+Copy-Item config.example.yml config.yml
+```
+
+随后只修改本地 `config.yml`。由于 `.gitignore` 已忽略该文件，正常 `git pull` 不会覆盖你的个人配置。
+
+如果以后误把 `config.yml` 提交进 Git，需要先把它从索引中移除，再保留本地文件：
+
+```text
+git rm --cached config.yml
+```
+
+这个模式适合存放本地地址、开关项、个人凭证占位等易变配置；真实密钥仍优先建议通过环境变量或安全输入方式注入。
+
+当前推荐的配置结构如下：
+
+```yaml
+review:
+    upload:
+        enabled: false
+        apiUrl: "https://xiaoniu.tech/api/stock/reviews"
+        apiKey: ""
+        timeoutSeconds: 30
+    local:
+        doc:
+            enabled: true
+            path: "/usr/local/files/docs/stock"
+        json:
+            enabled: true
+            path: "/usr/local/files/docs/stock"
+```
+
+其中，CLI 当前真正会读取的是 `review.upload.enabled`、`review.upload.apiUrl`、`review.upload.apiKey` 和 `review.upload.timeoutSeconds`；`review.local.*` 目前只保留为本地落盘配置预留字段，当前脚本不会消费它们。只有当 `review.upload.enabled=true`，或被命令行/环境变量显式开启上传时，才需要配置 apiKey。
+
+如果没有检测到 `config.yml`，CLI 会直接使用与 `config.example.yml` 对齐的默认参数；也就是说，`config.example.yml` 既是示例，也是默认配置基线。
+
+`report` 子命令的配置优先级为：命令行参数 > 环境变量 > `config.yml` > 默认参数（与 `config.example.yml` 一致）。
+
+可覆盖的运行时参数包括：
+
+- `--config-file` > `STOCK_REVIEW_CONFIG_FILE` > `./config.yml`
+- `--api-url` > `STOCK_REVIEW_API_URL` > `review.upload.apiUrl` > 内置默认 API 地址
+- `--api-key` > `STOCK_REVIEW_API_KEY` > `review.upload.apiKey` > 无默认值
+- `--timeout-seconds` > `STOCK_REVIEW_API_TIMEOUT_SECONDS` > `review.upload.timeoutSeconds` > `30`
+- `--upload-enabled` / `--upload-disabled` > `STOCK_REVIEW_UPLOAD_ENABLED` > `review.upload.enabled` > `false`
+
+为了兼容旧配置，CLI 仍会接受历史字段 `upload-review`、`baseUrl` 和 `doc-path`，但建议后续统一迁移到上面的新结构。
+
 ## 使用场景
 
 适用于以下请求：
@@ -59,9 +113,9 @@ stock-review-skill/
 
 ## 首次使用与鉴权
 
-从现在开始，apiKey 是整个复盘流程的前置要求，且复盘结果上报必须通过仓库内的 Python 脚本执行，不能只用自然语言描述接口调用。
+只有当配置启用了上传时，apiKey 才是上报流程的前置要求；若未启用上传，则可以只生成本地 markdown 和 JSON，而不必配置 apiKey。
 
-执行任何完整复盘流程前，agent 都应先确认用户已提供 apiKey，并在本地持久化为环境变量 `STOCK_REVIEW_API_KEY`。
+当 `review.upload.enabled=true`，或通过命令行/环境变量显式启用上传时，agent 才需要确认用户已提供 apiKey，并在本地持久化为环境变量 `STOCK_REVIEW_API_KEY`。
 
 推荐命令：
 
@@ -71,13 +125,21 @@ python ./scripts/stock_review_cli.py set-api-key
 
 - 脚本会在终端中安全提示用户输入 apiKey，并将其持久化到本地环境变量 `STOCK_REVIEW_API_KEY`。
 - `apiKey`、`token` 与 `STOCK_REVIEW_API_KEY` 指代同一份接口凭证。
-- 若用户拒绝提供 apiKey，则必须停止整个复盘流程，不得继续生成 markdown、JSON 或任何未上报结果。
+- 若已启用上传但用户拒绝提供 apiKey，则必须停止上报流程；若未启用上传，则不应因缺少 apiKey 阻塞本地 markdown 和 JSON 生成。
 
-生成 JSON 文件后，必须使用以下命令执行真实上报；未完成上报不算流程完成：
+若启用了上传，生成 JSON 文件后必须使用以下命令执行真实上报；若未启用上传，则不需要执行该命令：
 
 ```text
 python ./scripts/stock_review_cli.py report --json-file <path-to-review-json>
 ```
+
+如需临时覆盖配置，可直接通过命令行传参，例如：
+
+```text
+python ./scripts/stock_review_cli.py report --json-file <path-to-review-json> --api-url https://xiaoniu.tech/api/stock/reviews --timeout-seconds 60 --upload-enabled
+```
+
+如果未启用上传而误执行 `report`，CLI 会直接返回“Upload is disabled by configuration”的错误，提示先开启上传配置。
 
 ## 主要资源
 

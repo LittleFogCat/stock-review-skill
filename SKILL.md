@@ -7,7 +7,7 @@ user-invocable: true
 
 # 股市复盘
 
-根据复盘对象日期的盘面表现、盘中及盘后消息，生成标准化的复盘 markdown 文档、结构化 JSON 结果，并通过 Python 脚本上报至复盘 API。apiKey 是整个流程的硬性前置条件，上报成功是流程完成条件。
+根据复盘对象日期的盘面表现、盘中及盘后消息，生成标准化的复盘 markdown 文档与结构化 JSON 结果；若配置启用了上传，则再通过 Python 脚本上报至复盘 API。apiKey 仅在启用上传时才是前置条件。
 
 ## 何时使用
 
@@ -22,11 +22,11 @@ user-invocable: true
 - 当日复盘以 9:00 至次日 9:00 为一个复盘周期；例如 7 月 12 日上午 7:00 复盘，对象日期为 7 月 11 日。
 - 历史复盘以用户指定日期的 9:00 至次日 9:00 为消息与盘面收集范围。
 - 每日 9:00 至 16:00 交易时段内不执行当日复盘；该限制不适用于历史复盘。
-- 执行完整复盘流程前，必须先向用户索取 apiKey，用于复盘上报鉴权。
-- 若本地尚未持久化 `STOCK_REVIEW_API_KEY`，或用户要求更新凭证，必须先运行 `python ./scripts/stock_review_cli.py set-api-key`，由脚本在终端中安全读取 apiKey 并持久化到本地环境变量 `STOCK_REVIEW_API_KEY`。
+- 若 `config.yml` 中的 `review.upload.enabled=true`，或用户通过命令行/环境变量显式启用了上传，则执行上报前必须先向用户索取 apiKey，用于复盘上报鉴权。
+- 若已启用上传且本地尚未持久化 `STOCK_REVIEW_API_KEY`，或用户要求更新凭证，必须先运行 `python ./scripts/stock_review_cli.py set-api-key`，由脚本在终端中安全读取 apiKey 并持久化到本地环境变量 `STOCK_REVIEW_API_KEY`。
 - 不要把 apiKey 直接写入自然语言回复、日志、markdown、JSON 或命令行历史；优先让用户在脚本提示中输入。
 - `apiKey`、`token` 与 `STOCK_REVIEW_API_KEY` 指代同一份接口凭证。
-- 若用户拒绝提供 apiKey，必须立即停止整个复盘流程，不得继续生成 markdown、JSON，亦不得提供任何“仅本地生成、不上报”的替代执行路径。
+- 若已启用上传但用户拒绝提供 apiKey，必须立即停止上报流程；若未启用上传，则不得因缺少 apiKey 阻塞 markdown 与 JSON 的本地生成。
 
 ## 输出要求
 
@@ -39,21 +39,21 @@ user-invocable: true
 7. JSON 结果：字段结构必须符合 [股市复盘 JSON 模型](./references/review_model.md)。
 8. JSON 中的 `content` 字段应与 markdown 正文一致，不得留空。
 9. 输出前复查：必须对 markdown 与 JSON 中的关键事实做一轮复查，至少核对交易日期、指数数据、热点板块、新闻标题与结论、关注个股代码/名称/理由是否都能在已收集来源中找到依据；发现无依据、互相矛盾或来源不清的内容时，必须删除或改写为明确的不确定表述。
-10. 上报结果：必须执行真实 API 上报，并向用户返回脚本的实际执行结果；若上报失败，则本次复盘流程视为未完成。
+10. 上报结果：若已启用上传，必须执行真实 API 上报，并向用户返回脚本的实际执行结果；若上报失败，则本次复盘流程视为未完成。若未启用上传，则可跳过上报，本地 markdown 与 JSON 生成完成即可视为流程完成。
 
 ## 执行流程
 
 1. 确定复盘对象日期，并据此判断是当日复盘还是历史复盘。
-2. 在开始收集盘面信息前，先确认用户是否已提供 apiKey；若未提供或本地环境变量 `STOCK_REVIEW_API_KEY` 缺失，则先运行 `python ./scripts/stock_review_cli.py set-api-key` 完成持久化。若用户不提供 apiKey，则立即终止流程。
+2. 先读取 `config.yml` 中的 `review.upload.enabled`；若其为 `true`，或用户通过命令行/环境变量显式启用了上传，再确认用户是否已提供 apiKey。若未提供或本地环境变量 `STOCK_REVIEW_API_KEY` 缺失，则先运行 `python ./scripts/stock_review_cli.py set-api-key` 完成持久化。若此时用户仍不提供 apiKey，则立即终止上报流程；若未启用上传，则跳过此步骤。
 3. 收集复盘对象日期对应的盘面数据、板块表现、个股异动和政经新闻。
 4. 优先从以下来源收集信息：东方财富、同花顺、澎湃财经、新华社、财联社，以及其他相关政经网站。
 5. 在写入 markdown 和 JSON 前，先逐项核对将要输出的关键事实是否在本次收集结果中有明确依据；若某条事实只来自示例、模板记忆、模糊印象，或无法追溯到已收集来源，则不得写入结果。
 6. 基于经过核对的结果生成复盘 markdown 文档，格式参考 [文档模板](./assets/review_doc_template.md)。
 7. 生成结构化 JSON，字段与示例参考 [JSON 模型](./references/review_model.md) 和 [JSON 示例](./assets/review_sample.json)，并将 JSON 落盘为本地文件，例如 `stock_review_<date>.json`。
 8. 在上报前，复查 markdown 与 JSON 的事实一致性，确认两者没有互相矛盾、没有把示例内容误写成真实事实、没有出现无法证实的结论。
-9. 生成 JSON 后，必须立即运行 `python ./scripts/stock_review_cli.py report --json-file <json文件路径>` 执行真实 `POST` 请求，不得仅以自然语言描述接口调用步骤代替实际执行。
-10. 只有在第 9 步上报成功后，完整复盘流程才算完成；若上报失败，必须向用户明确返回失败信息，而不是将流程描述为已完成。
-11. 汇总返回给用户时，应包含 markdown 正文、JSON 结果，以及脚本上报成功或失败的实际结果。
+9. 若已启用上传，生成 JSON 后必须立即运行 `python ./scripts/stock_review_cli.py report --json-file <json文件路径>` 执行真实 `POST` 请求，不得仅以自然语言描述接口调用步骤代替实际执行；若未启用上传，则跳过该步骤。
+10. 若已启用上传，只有在第 9 步上报成功后，完整复盘流程才算完成；若上报失败，必须向用户明确返回失败信息，而不是将流程描述为已完成。若未启用上传，则 markdown 与 JSON 生成完成即可视为流程完成。
+11. 汇总返回给用户时，应包含 markdown 正文、JSON 结果，以及脚本上报成功、失败或已按配置跳过上报的实际结果。
 
 ## 资源
 
@@ -69,8 +69,8 @@ user-invocable: true
 - 本 skill 适合重复执行的复盘工作流，不适合作为实时交易建议工具。
 - 若用户只需要单个字段说明或接口细节，可直接读取相应资源文件，而不必执行完整流程。
 - 本 skill 中的 `token` 与 `apiKey` 指代同一份接口凭证。
-- 该 skill 的标准输出默认包含真实上报，不存在“只生成不报送”的完成态。
-- 只要用户请求复盘，agent 就必须先满足 apiKey 前置条件，再走脚本上报路径，不得只输出 curl、伪代码或接口描述。
+- 是否执行真实上报由 `config.yml` 中的 `review.upload.enabled` 控制；当其为 `false` 时，允许以“生成 markdown 与 JSON、跳过上报”作为完成态。
+- 只有在启用上传时，agent 才必须先满足 apiKey 前置条件，再走脚本上报路径；未启用上传时，不得凭空要求用户提供 apiKey。
 - 如果事实依据不足，允许输出“未确认”或直接省略该条，不允许为了完整性伪造事实。
 
 ## 常见陷阱

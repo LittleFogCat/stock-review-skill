@@ -1,0 +1,13 @@
+review:
+  upload:
+    enabled: false # 是否允许执行 report 上传
+    apiUrl: "https://xiaoniu.tech/api/stock/reviews" # 上传复盘的完整 API 地址
+    apiKey: "" # 默认留空；仅在 enabled=true 时需要，优先使用环境变量 STOCK_REVIEW_API_KEY
+    timeoutSeconds: 30 # HTTP 请求超时时间（秒）
+  local:
+    doc:
+      enabled: true # 是否启用本地存储复盘文档
+      path: "/usr/local/files/docs/stock" # 复盘文档目录
+    json:
+      enabled: true # 是否启用本地存储复盘 JSON
+      path: "/usr/local/files/docs/stock" # 复盘 JSON 目录
