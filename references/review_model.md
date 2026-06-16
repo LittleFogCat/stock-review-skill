@@ -38,7 +38,7 @@
 | focusStocks[].stocks[].code | string | 股票代码 |
 | focusStocks[].stocks[].name | string | 股票名称 |
 | focusStocks[].stocks[].reason | string | 个股关注理由（如封板表现、放量突破等） |
-| title | string | 文章标题 |
+| title | string | **强制格式**：当日复盘 → `YYYY年M月D日（周X）A股复盘`；早盘快报 → `YYYY年M月D日早盘快报`。不得自由发挥。 |
 | content | string | 文章详情内容，以 markdown 格式存储，可为空 |
 
 JSON 示例见：[JSON 示例](../assets/review_sample.json)
