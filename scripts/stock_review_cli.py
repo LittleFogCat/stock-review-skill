@@ -352,13 +352,13 @@ def iter_default_config_candidates(file_name: str) -> list[Path]:
     script_root = Path(__file__).resolve().parent.parent
     candidates = [Path.cwd() / file_name, script_root / file_name]
     unique_candidates: list[Path] = []
-    seen: set[str] = set()
+    seen_dirs: set[str] = set()
 
     for candidate in candidates:
         normalized = str(candidate.resolve(strict=False))
-        if normalized in seen:
+        if normalized in seen_dirs:
             continue
-        seen.add(normalized)
+        seen_dirs.add(normalized)
         unique_candidates.append(candidate)
 
     return unique_candidates

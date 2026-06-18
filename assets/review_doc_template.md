@@ -93,3 +93,81 @@ ${todayHot.summary}
 ```
 
 其中，标注了 `// etc..` 部分的内容为可变长度数组元素，具体数量根据数组真实数据确定，而非模板中的固定内容。
+
+---
+
+## 早盘快报格式
+
+早盘快报不包含当日盘中数据（尚未开盘），结构比当日复盘精简。昨日盘面数据从昨日复盘 JSON 提取，不重新拉取 API。
+
+```markdown
+# YYYY年M月D日早盘快报
+
+## 一、隔夜美股
+
+| 指数 | 收盘点位 | 涨跌幅 | 解读 |
+|------|---------|:------:|------|
+| 道琼斯 | ${dji_close} | ${dji_change}% | ${dji_reason} |
+| 标普500 | ${spx_close} | ${spx_change}% | ${spx_reason} |
+| 纳斯达克 | ${ixic_close} | ${ixic_change}% | ${ixic_reason} |
+
+> **影响因素**：${us_market_summary}
+
+## 二、昨日A股回顾
+// 数据来源：昨日复盘 JSON（/usr/local/files/docs/stock/YYYY-MM-DD-A股复盘.json）
+
+| 指数 | 收盘价 | 涨跌幅 | 评价 |
+| --- | --- | :---: | --- |
+| ${markets.indices[0].name} | ${markets.indices[0].close} | ${markets.indices[0].changePercent}% | ${markets.indices[0].reason} |
+// etc..
+
+昨日领涨板块：${yesterday_top_sectors_summary}
+昨日涨停/跌停家数：${yesterday_limit_summary}
+
+## 三、盘前重大消息
+
+### 📌 宏观政策
+- ${macro_news[0]}
+- ${macro_news[1]}
+// etc..
+
+### 📌 产业/行业
+- ${industry_news[0]}
+- ${industry_news[1]}
+// etc..
+
+### 📌 资金面
+- ${fund_news[0]}
+// etc..
+
+## 四、今日关注线索
+
+### 市场焦点
+1. ${focus_clue[0]}
+2. ${focus_clue[1]}
+// etc..（≤8条）
+
+### 风险提示
+- ⚠️ ${risk[0]}
+// etc..
+
+---
+
+## 五、今日关注板块
+// 综合昨日复盘板块表现 + 盘前催化方向，≤8个
+
++ **${focusSectors[0].name}：** ${focusSectors[0].reason}
++ **${focusSectors[1].name}：** ${focusSectors[1].reason}
+// etc..
+
+## 六、今日关注个股
+// 综合昨日复盘个股走势 + 盘前催化线索，≤10只
+
+**${sector_name}：**
+
++ ${stock_name}（${stock_code}）：${stock_reason}
++ ${stock_name}（${stock_code}）：${stock_reason}
+// etc..
+
+// etc..（可按板块分组）
+```

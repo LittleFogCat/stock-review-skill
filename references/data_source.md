@@ -47,6 +47,24 @@ A 股复盘数据源参考
     
     注意： 返回数据使用 GBK 编码，中文可能显示为乱码；在 Python 中需 decode('gbk') 处理。索引位置以实际 dump 为准，API 版本变更时可能偏移；遇到解析异常请先 dump 一行原始数据核对各字段位置。
 
+    **美股指数代码（腾讯 API）**（2026-06-18 验证）：
+    腾讯 API 也支持查询美股三大指数，代码格式为 `us<缩写>`：
+    - 道琼斯：`usDJI` → 返回 `v_usDJI`，字段格式与 A 股指数一致（GBK 编码）
+    - 纳斯达克：`usIXIC` → 返回 `v_usIXIC`
+    - 标普 500：`usINX` → 返回 `v_usINX`（注意：`usSPX`、`usSP500`、`us$spx`、`us^GSPC` 均不可用）
+    
+    用法示例 — 批量查询美股三大指数：
+    ```python
+    url = "https://qt.gtimg.cn/q=usDJI,usIXIC,usINX"
+    ```
+    关键字段索引（0-based，与 A 股指数一致）：
+    - 索引 1：名称（中文，如「道琼斯」「纳斯达克」「标普500」）
+    - 索引 3：当前价/收盘价
+    - 索引 31：涨跌额
+    - 索引 32：涨跌幅百分比
+    
+    美股数据时间戳在索引 30（格式 `YYYY-MM-DD HH:MM:SS`），返回的是上一交易日收盘值或实时盘中值。
+
     **板块代码（pt 格式）大量不可用**（2026-06-08 验证）：
     - 板块代码格式 `pt01801xxx`，实测 33 个常见板块中仅 13 个（39%）返回有效数据。
     - **可用的板块代码**（已验证）：半导体(pt01801110)、证券(pt01801043)、传媒娱乐(pt01801104)、软件服务(pt01801103)、银行(pt01801040)、石油(pt01801045)、船舶(pt01801083)、运输服务(pt01801084)、钢铁(pt01801051)、仓储物流(pt01801085)、煤炭(pt01801055)、化工(pt01801053)、航空(pt01801082)。
@@ -219,6 +237,37 @@ A 股复盘数据源参考
     ```
 
     2026-06-15 验证：单次请求返回 239 条标题，其中多条与 A 股直接相关（如「三大股指均涨超1% 有色金属板块爆发」），可用于交叉验证东财 API 的板块数据和当日市场主线判断。
+
+    **文章级内容提取：财经早报/操盘必读（早盘快报场景专用）**
+    
+    当需要更丰富、结构化的盘前消息时（尤其是早盘快报模式），可进一步提取 Sina 财经早间专栏文章的全文本内容。首页筛选标题后可找到以下两类锚定文章：
+    
+    - **财经早报**：URL 模式 `https://finance.sina.com.cn/stock/y/YYYY-MM-DD/doc-*.shtml`，标题含「财经早报：...丨YYYY年M月D日」
+    - **操盘必读**：URL 模式 `https://finance.sina.com.cn/stock/cpbd/YYYY-MM-DD/doc-*.shtml`，标题含「操盘必读：影响股市利好或利空消息_YYYY年M月D日」
+    
+    两篇文章覆盖：隔夜美股收盘数据、美联储/海外市场、国内政策（央行/证监会/部委）、行业板块热点、公司公告、今日关注等。适合在早盘快报中作为「消息面」和「今日关注」的事实基础。
+    
+    提取方法 — execute_code：
+    ```python
+    import urllib.request, re, html
+
+    url = "https://finance.sina.com.cn/stock/y/2026-06-18/doc-inicuqhf2352807.shtml"
+    req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+    with urllib.request.urlopen(req, timeout=15) as resp:
+        art_html = resp.read().decode("utf-8", errors="replace")
+    
+    # Strip scripts and styles, then extract text
+    art_text = re.sub(r'<script[^>]*>.*?</script>', '', art_html, flags=re.DOTALL)
+    art_text = re.sub(r'<style[^>]*>.*?</style>', '', art_text, flags=re.DOTALL)
+    art_text = re.sub(r'<[^>]+>', '\n', art_text)
+    art_text = html.unescape(art_text)
+    
+    lines = [l.strip() for l in art_text.split('\n') if l.strip() and len(l.strip()) > 5]
+    ```
+    
+    提取后按关键词筛选：`['央行', '证监会', '美联储', '板块', 'AI', '芯片', '利好', '利空', '关注', '政策']` 即可获得结构化内容。
+    
+    **已知风险**：文章链接有失效可能（404 或跳转），建议先通过首页搜索标题确认链接有效；隔夜文章可能被新文章覆盖，优先选择日期匹配的链接。
 
     7. 东方财富板块排名 API（push2.eastmoney.com）— ⚠️ 已全面弃用（2026-06-15）
 
