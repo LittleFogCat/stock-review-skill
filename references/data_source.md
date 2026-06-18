@@ -4,14 +4,24 @@ A 股复盘数据源参考
 
     ---
 
-    ## 可选方案：Python SDK 采集（pyTDX + AKShare）
+    ## Python SDK 采集方案（pyTDX + AKShare）— 部分可用
 
-    **状态**：可选方案，在浏览器不可用或需要更稳定数据时使用。与下方「首选数据源」（腾讯 API + 浏览器抓取）互不替代，agent 可根据运行环境二选一。
+    **最后验证：2026-06-19** | 详见下方各接口的实测状态。
 
-    **方案优势**：
-    - 全部通过 Python SDK 调用，不依赖浏览器 snapshot
-    - 通达信协议（pyTDX）连接公开行情服务器，数据准确且无需 API Key
-    - 同花顺数据（akshare THS）提供行业板块排名，不受东财 API 拦截影响
+    | 接口 | 状态 | 说明 |
+    |------|------|------|
+    | pyTDX 指数K线 | ✅ 稳定 | 上证4090.48 (-0.43%)，服务器 `60.12.136.250:7709` |
+    | pyTDX 个股实时 | ✅ 稳定 | 五档盘口，需自行映射名称 |
+    | akshare Sina美股 | ✅ 稳定 | 道指-0.98%，纳指-1.34%，日线级别 |
+    | akshare THS板块排名 | ❌ 失效 | 同花顺改页面结构，`No tables found` |
+    | akshare 东财行业板块 | ❌ 被封 | 东财全面封杀，`RemoteDisconnected` |
+    | akshare 东财概念板块 | ❌ 被封 | 同上，所有请求被拒绝 |
+
+    **核心原则：任何渠道都不能尽信，失败时必须尝试下一层回退。**
+
+    **方案优势**（可用部分）：
+    - pyTDX 通达信协议直连公开行情服务器，免费无需 API Key
+    - akshare Sina 美股接口提供隔夜收盘数据，早盘快报必备
     - 全部免费、开源、无需注册
 
     ### 安装
@@ -83,9 +93,15 @@ A 股复盘数据源参考
     - 股票名称需额外查询映射
     - 仅支持 A 股市场
 
-    ### 2. akshare THS — 行业板块排名（同花顺）
+    ### 2. akshare THS — 行业板块排名（同花顺）⚠️ 已失效
 
-    同花顺行业板块汇总，提供完整排名、涨跌幅和领涨股。
+    **2026-06-19 实测：`stock_board_industry_summary_ths()` 返回 `ValueError: No tables found`。**
+    同花顺改了 HTML 页面结构，akshare 的 `pd.read_html` 解析失效。不要依赖此接口。
+
+    **回退 → Level 2：浏览器 CLS 侧边栏**（申万行业分类，SSR 渲染）或 JRJ 首页「涨停复盘」
+    **回退 → Level 3（浏览器冻结时）：Sina 财经首页标题 + 腾讯 API pt 板块代码 + 个股聚合**
+
+    ~~以下为失效前的用法，仅供参考：~~
 
     ```python
     import akshare as ak
@@ -101,7 +117,7 @@ A 股复盘数据源参考
 
     **注意**：同花顺板块分类体系与申万分类不同，数据不可与 CLS 侧边栏直接交叉对比。
 
-    ### 3. akshare Sina — 隔夜美股
+    ### 3. akshare Sina — 隔夜美股 ✅ 已验证可用（2026-06-19）
 
     ```python
     import akshare as ak
@@ -117,7 +133,7 @@ A 股复盘数据源参考
 
     **注意**：Sina 美股数据为日线级别，上一交易日收盘数据在当天早晨 8:00 前即可获取。
 
-    ### 完整采集示例（execute_code）
+    ### 完整采集示例（仅使用已验证可用的 SDK 接口）
 
     单次脚本串行采集所有数据：
 
@@ -137,9 +153,11 @@ A 股复盘数据源参考
             indices[name] = {'close': cur['close'], 'chg': round(chg,2), 'vol': cur['vol']}
     api.disconnect()
 
-    # 2. 行业板块 TOP5
-    boards = ak.stock_board_industry_summary_ths()
-    top_boards = boards.nlargest(5, '涨跌幅')
+    # 2. 行业板块排名 — akshare THS 已失效，改用多层回退（见下方「多层回退策略」）
+    # ⚠️ 不要调用 ak.stock_board_industry_summary_ths() — 同花顺页面结构已变更
+    # Level 1: 浏览器 → CLS侧边栏 或 JRJ首页「涨停复盘」
+    # Level 2: 纯HTTP → Sina财经标题 + 腾讯API pt板块代码 + 个股聚合
+    # 详见本文末尾「多层回退策略」章节
 
     # 3. 美股
     us = {}
@@ -317,15 +335,15 @@ A 股复盘数据源参考
     
     
     
-    ## 采集策略建议
+    ## 采集策略建议（2026-06-19 更新）
 
-    1. 指数数据： 腾讯 API 直接 curl，最快最稳
-    2. 板块涨幅/热点： **首选金融界「涨停复盘」**（首页 snapshot 一句话总结当日主线+涨停龙头，最直观可靠）；辅以金融界「ETF复盘资讯」交叉验证；财联社电报页侧边栏（SSR 渲染，行业/概念板块涨跌幅 + 资金流入数据）作为补充（注意侧边栏可能不出现在 accessibility tree 中）。浏览器冻结时：腾讯 API pt 板块代码 + Sina 新闻标题 + 个股聚合。
-    3. 新闻消息： 财联社电报 + 金融界首页，两者互补。金融界的「A股头条」和「7x24小时电报」板块在周末也持续更新。浏览器冻结时：Sina 财经首页标题提取
-    4. 个股异动/涨停： 金融界「妖股直击」栏、公告速递
-    5. 美股映射： 金融界首页链接的格隆汇/华尔街消息，非常适合获取周五晚间美股收盘数据
-    6. git 拉取失败时： 用 GitHub API + raw.githubusercontent.com 下载文件直接覆盖
-    7. ⚠️ 东财板块排名 API（push2.eastmoney.com）：2026-06-15 起全面弃用，所有模式均失败。不要调用。
+    1. **指数数据：** 腾讯 API → pyTDX（任一可用即可，双保险）
+    2. **板块涨幅/热点：多层回退（见下方新章节）**
+    3. **新闻消息：** 浏览器 → CLS电报 + JRJ首页；浏览器冻结 → Sina财经首页 + 专栏文章
+    4. **个股异动/涨停：** JRJ「妖股直击」+ 东财公告 API
+    5. **美股数据：** akshare Sina → 腾讯 API usDJI/usIXIC/usINX（双保险）
+    6. **个股公告：** 东财公告 API `np-anotice-stock` ✅ 稳定
+    7. ⚠️ **已弃用**：东财板块排名 API（2026-06-15）、akshare THS板块（2026-06-19）、akshare 东财行业/概念板块（2026-06-19）
 
     5. 东方财富公告 API（np-anotice-stock.eastmoney.com）
 
@@ -478,4 +496,72 @@ A 股复盘数据源参考
     示例代码见上方腾讯 API 和东方财富公告 API 章节。
 
 
-    > 以上数据源状态基于 2026-06-09 验证。腾讯 API 指数/个股正常，板块 pt 代码大量不可用（仅 39% 返回数据）。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页栏目链接点击不跳转（JS 驱动），但标题摘要已覆盖关键结论。东财公告 API 稳定可用（np-anotice-stock）。
+    > 以上数据源状态基于 2026-06-19 验证。腾讯 API 指数/个股正常，板块 pt 代码大量不可用（仅 39% 返回数据）。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页栏目链接点击不跳转（JS 驱动），但标题摘要已覆盖关键结论。东财公告 API 稳定可用（np-anotice-stock）。pyTDX 服务器 `60.12.136.250:7709` 可用。akshare Sina 美股可用。akshare THS + 东财行业/概念板块均不可用。
+
+    ---
+
+    ## ⚡ 多层回退策略（核心原则）
+
+    > **任何渠道都不能尽信。每个数据点必须有多层回退。失败时立即尝试下一层，不要在已失败的渠道上反复重试。**
+
+    ### 各数据点回退链
+
+    | 数据需求 | Level 1（首选） | Level 2（备用） | Level 3（兜底） |
+    |---------|----------------|----------------|----------------|
+    | **A股指数** | 腾讯 API `qt.gtimg.cn` | pyTDX 通达信 | — |
+    | **美股指数** | akshare Sina | 腾讯 API `usDJI/usIXIC/usINX` | — |
+    | **板块排名（领涨）** | 浏览器 CLS 侧边栏 | 浏览器 JRJ「涨停复盘」 | Sina标题 + 腾讯pt代码 + 个股聚合 |
+    | **板块排名（领跌）** | 浏览器 CLS 侧边栏 | JRJ「妖股直击」反向推断 | 腾讯API弱势个股聚合估算 |
+    | **个股涨跌幅** | 腾讯 API 个股代码 | pyTDX 日K线 | — |
+    | **消息面/新闻** | CLS电报 + JRJ首页 | Sina财经首页标题 | — |
+    | **早盘专栏** | Sina财经早报/操盘必读 | JRJ「A股头条」 | — |
+    | **个股公告** | 东财公告 API | — | — |
+
+    ### 执行规则
+
+    1. **每次采集前检查渠道可用性** — 不要假设上次可用的这次还能用
+    2. **失败不重试** — 若 Level 1 失败，直接跳到 Level 2，不要在 Level 1 上反复重试（浪费时间）
+    3. **标注数据来源** — 在报告的数据源说明中标注实际使用的渠道层级
+    4. **浏览器冻结时直接跳过 Level 1** — 全局回退到纯 HTTP 路径（见上文「全 HTTP 回退采集流程」）
+    5. **akshare 东财系列全部禁用** — 不仅 `push2.eastmoney.com`，`stock_board_industry_name_em()` 和 `stock_board_concept_name_em()` 也被封
+
+    ### 板块排名回退详解（最复杂的数据点）
+
+    ```
+    Level 1: browser_navigate("https://www.cls.cn/telegraph")
+             → 从 snapshot 提取右侧栏行业/概念板块排名
+             → 申万分类，市场标准
+             → ❌ 失败：侧边栏不在 accessibility tree 中
+
+    Level 2: browser_navigate("https://stock.jrj.com.cn/")
+             → 从 snapshot 提取「涨停复盘」栏目
+             → 一句话总结当日主线+涨停龙头（定性为主）
+             → ❌ 失败：浏览器全局冻结
+
+    Level 3: execute_code 纯 HTTP
+             → Sina 财经首页标题提取板块线索
+             → 腾讯 API 查询已验证可用的 13 个 pt 板块代码
+             → 腾讯 API 拉取 20-30 只代表性个股按行业聚合
+             → 报告标注「基于多源拼接估算」
+    ```
+
+    ### 美股回退详解
+
+    ```
+    Level 1: akshare.index_us_stock_sina(symbol='.DJI')
+             → 日线级别，收盘后可获取
+             → ❌ 失败：akshare 异常
+
+    Level 2: 腾讯 API usDJI/usIXIC/usINX
+             → execute_code + urllib.request
+             → ✅ 字段格式与 A 股一致
+    ```
+
+    ### 已确认不可用的渠道清单（避免踩坑）
+
+    | 渠道 | 失效时间 | 症状 |
+    |------|---------|------|
+    | 东财板块排名 push2 API | 2026-06-15 | `RemoteDisconnected` |
+    | 东财板块排名 akshare封装 | 2026-06-19 | 同上（走的同一后端） |
+    | akshare THS 同花顺板块 | 2026-06-19 | `No tables found` |
+    | 东财概念板块 akshare | 2026-06-19 | `RemoteDisconnected` |
