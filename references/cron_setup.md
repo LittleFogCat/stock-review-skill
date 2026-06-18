@@ -142,6 +142,16 @@ cron 执行环境中可能缺少 DBUS 会话总线，导致 `systemctl --user re
 
 4. **独立日志**：看门狗写日志到 `~/.hermes/logs/watchdog.log`，便于事后排查为什么看门狗没生效。
 
+**⚠️ 关键陷阱：健康检查阈值必须 > 协议 session 周期**
+
+QQ Bot WebSocket 每约 30 分钟自动执行一次 session timeout 重连，期间没有 WS 日志输出。若看门狗的健康阈值（`MAX_DOWN`）小于这个静默周期，就会在连接完全正常时误判为「断连」，触发反复重启。
+
+**症状**：gateway log 中每 15-20 分钟出现一次 WebSocket connected，看门狗日志中不断 `Unhealthy: last WS=connected age=902s, restarting...`。
+
+**根因**：最后一次 WS `connected` 事件距今超过阈值（如 900s < 1800s 静默期），但连接实际健康——只是没有新的 WS 事件产生。
+
+**解决方案**：将 `MAX_DOWN` 设为至少 2400s（40 分钟），留够安全余量。QQ Bot session 周期为 ~1800s，2400s > 1800s 确保不会在正常静默期误判。
+
 ## 自毁式 Cron Job 模式（推送重试等）
 
 某些一次性任务（如 git push 重试）需要反复尝试直到成功，成功后自动清理自己。

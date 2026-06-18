@@ -1,9 +1,159 @@
 A 股复盘数据源参考
     
     本文件收录在复盘流程中可用的数据采集来源及使用经验。
-    
-    
-    
+
+    ---
+
+    ## 可选方案：Python SDK 采集（pyTDX + AKShare）
+
+    **状态**：可选方案，在浏览器不可用或需要更稳定数据时使用。与下方「首选数据源」（腾讯 API + 浏览器抓取）互不替代，agent 可根据运行环境二选一。
+
+    **方案优势**：
+    - 全部通过 Python SDK 调用，不依赖浏览器 snapshot
+    - 通达信协议（pyTDX）连接公开行情服务器，数据准确且无需 API Key
+    - 同花顺数据（akshare THS）提供行业板块排名，不受东财 API 拦截影响
+    - 全部免费、开源、无需注册
+
+    ### 安装
+
+    ```bash
+    pip3 install --break-system-packages pytdx akshare
+    ```
+
+    ### 1. pyTDX — A股指数 + 个股日K线（通达信协议）
+
+    通过通达信 T2 协议直连公开行情服务器，获取指数和个股的日K线数据。
+
+    **服务器**（已验证）：`60.12.136.250:7709`
+
+    **指数日K线**：
+
+    ```python
+    from pytdx.hq import TdxHq_API
+    api = TdxHq_API()
+    api.connect('60.12.136.250', 7709)
+
+    # 上证指数 (market=1, code='000001')
+    # 深证成指 (market=0, code='399001')
+    # 创业板指 (market=0, code='399006')
+    # 科创50   (market=1, code='000688')
+    data = api.get_index_bars(9, 1, '000001', 0, 3)  # cat, market, code, start, count
+    for d in data:
+        print(f"open={d['open']} close={d['close']} high={d['high']} low={d['low']} vol={d['vol']}")
+
+    api.disconnect()
+    ```
+
+    **个股日K线**：
+
+    ```python
+    # 平安银行 (market=0, code='000001')
+    # 贵州茅台 (market=1, code='600519')
+    data = api.get_security_bars(9, 1, '600519', 0, 3)
+    for d in data:
+        close = d['close']
+        # 需自行计算涨跌幅：(当日close - 前日close) / 前日close * 100
+        print(f"close={d['close']} vol={d['vol']}")
+    ```
+
+    **个股实时行情**（五档买卖盘）：
+
+    ```python
+    quotes = api.get_security_quotes([(0, '000001'), (1, '600519')])
+    for q in quotes:
+        price = q['price']
+        last_close = q['last_close']
+        chg_pct = (price - last_close) / last_close * 100 if last_close else 0
+        print(f"code={q['code']} price={price} chg={chg_pct:.2f}%")
+    # 注意：行情接口不返回股票名称，需从 get_security_list 获取名称映射
+    ```
+
+    **股票名称映射**：
+
+    ```python
+    # 获取深圳 A 股列表（market=0, start=0 最多 1000 条，需分页）
+    stocks = api.get_security_list(0, 0)
+    name_map = {s['code']: s['name'] for s in stocks}
+    # 上海 A 股列表（market=1 返回 None，需用 get_security_bars 参数 market=1 区分）
+    ```
+
+    **已知限制**：
+    - 通达信服务器不提供板块排名和概念板块数据
+    - 不提供美股数据
+    - 股票名称需额外查询映射
+    - 仅支持 A 股市场
+
+    ### 2. akshare THS — 行业板块排名（同花顺）
+
+    同花顺行业板块汇总，提供完整排名、涨跌幅和领涨股。
+
+    ```python
+    import akshare as ak
+
+    # 行业板块排名（含涨跌幅 + 领涨股 + 领涨股涨幅）
+    df = ak.stock_board_industry_summary_ths()
+    top5 = df.nlargest(5, '涨跌幅')
+    for _, r in top5.iterrows():
+        print(f"{r['板块']:8s} | {r['涨跌幅']:>6}% | 领涨: {r['领涨股']}({r['领涨股-涨跌幅']}%)")
+    ```
+
+    **返回字段**：板块、涨跌幅、总成交量、总成交额、净流入、上涨家数、下跌家数、领涨股、领涨股-最新价、领涨股-涨跌幅
+
+    **注意**：同花顺板块分类体系与申万分类不同，数据不可与 CLS 侧边栏直接交叉对比。
+
+    ### 3. akshare Sina — 隔夜美股
+
+    ```python
+    import akshare as ak
+
+    # 道指 .DJI / 纳指 .IXIC / 标普 .INX
+    for sym, label in [('.DJI', '道琼斯'), ('.IXIC', '纳斯达克'), ('.INX', '标普500')]:
+        df = ak.index_us_stock_sina(symbol=sym)
+        latest = df.iloc[-1]
+        prev = df.iloc[-2]
+        chg = (latest['close'] - prev['close']) / prev['close'] * 100
+        print(f"{label} | {latest['close']:.2f} | {chg:+.2f}%")
+    ```
+
+    **注意**：Sina 美股数据为日线级别，上一交易日收盘数据在当天早晨 8:00 前即可获取。
+
+    ### 完整采集示例（execute_code）
+
+    单次脚本串行采集所有数据：
+
+    ```python
+    from pytdx.hq import TdxHq_API
+    import akshare as ak
+
+    # 1. A股指数
+    api = TdxHq_API()
+    api.connect('60.12.136.250', 7709)
+    indices = {}
+    for name, mkt, code in [('上证',1,'000001'),('深证',0,'399001'),('创业板',0,'399006'),('科创50',1,'000688')]:
+        data = api.get_index_bars(9, mkt, code, 0, 2)
+        if data and len(data)>=2:
+            cur,prev = data[-1],data[-2]
+            chg = (cur['close']-prev['close'])/prev['close']*100
+            indices[name] = {'close': cur['close'], 'chg': round(chg,2), 'vol': cur['vol']}
+    api.disconnect()
+
+    # 2. 行业板块 TOP5
+    boards = ak.stock_board_industry_summary_ths()
+    top_boards = boards.nlargest(5, '涨跌幅')
+
+    # 3. 美股
+    us = {}
+    for sym,label in [('.DJI','道指'),('.IXIC','纳指'),('.INX','标普')]:
+        df = ak.index_us_stock_sina(symbol=sym)
+        latest,prev = df.iloc[-1],df.iloc[-2]
+        us[label] = {'close': float(latest['close']), 
+                     'chg': round((latest['close']-prev['close'])/prev['close']*100, 2)}
+
+    print('A股指数:', indices)
+    print('美股:', us)
+    ```
+
+
     首选数据源（稳定可靠）
     
     1. 腾讯行情 API（qt.gtimg.cn）
