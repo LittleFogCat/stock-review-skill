@@ -66,30 +66,7 @@ ${todayHot.summary}
 
 // etc..
 
----
-
-## 明日关注板块
-+ **${focusSectors[0].name}：** ${focusSectors[0].reason}
-+ **${focusSectors[1].name}：** ${focusSectors[1].reason}
-// etc..
-
----
-
-## 明日关注个股
-**${focusStocks[0].sector}：**
-
-+ ${focusStocks[0].stocks[0].name}（${focusStocks[0].stocks[0].code}）：${focusStocks[0].stocks[0].reason}
-+ ${focusStocks[0].stocks[1].name}（${focusStocks[0].stocks[1].code}）：${focusStocks[0].stocks[1].reason}
-+ ${focusStocks[0].stocks[2].name}（${focusStocks[0].stocks[2].code}）：${focusStocks[0].stocks[2].reason}
-// etc..
-
-**${focusStocks[1].sector}：**
-
-+ ${focusStocks[1].stocks[0].name}（${focusStocks[1].stocks[0].code}）：${focusStocks[1].stocks[0].reason}
-
-// etc..
-
-// etc..
+<!-- 当日复盘不包含「明日关注板块」和「明日关注个股」章节 —— 这些仅出现在早盘快报中 -->
 ```
 
 其中，标注了 `// etc..` 部分的内容为可变长度数组元素，具体数量根据数组真实数据确定，而非模板中的固定内容。
