@@ -75,7 +75,11 @@ user-invocable: true
 - 输出：简洁内联表格，无需生成本地文件，无需上报 API
 - 数据源：
   - A 股：腾讯行情 API `qt.gtimg.cn` + 东财公告 API `np-anotice-stock`
-  - 境外（港股/美股/韩股/日股等）：Yahoo Finance v7 API `query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}`。常见代码：港股 `0700.HK`、美股 `AAPL`、韩股 `005930.KS`、日股 `7203.T`。⚠️ Yahoo Finance 可能要求 crumb/cookie（先访问 `finance.yahoo.com` 获取），若 v7/v8 均 403，回退为 Sina 财经 `hq.sinajs.cn`（仅部分境外股票可用）。境外股票公告不可用，省略公告列。
+  - 境外（港股/美股/韩股/日股等）：
+  - 首选：**yfinance**（`pip3 install yfinance`）。用法 `ticker.history(period='2d')` 获取日线，或 `ticker.info` 获取实时行情。⚠️ Yahoo 有频率限制，短时间内大量请求会触发 `YFRateLimitError`，需等待冷却。
+  - 回退：Yahoo Finance v7 API `query2.finance.yahoo.com/v7/finance/quote?symbols={symbol}`。
+  - 代码格式：港股 `0700.HK`、美股 `AAPL`、韩股 `005930.KS`、日股 `7203.T`。
+  - 境外股票公告不可用，省略公告列。
 - 注意：这是轻量查询，不是复盘。单次 `execute_code` 完成全部采集+输出，不需要浏览器
 
 ## 何时使用
