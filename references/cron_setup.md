@@ -60,6 +60,31 @@ cronjob action=create \
 
 `deliver` 参数支持逗号分隔的 `platform:user_id` 列表，可将复盘结果同时发给多个已配对的 QQ Bot 用户。
 
+### 手动重试看门狗模式（当 cron job 因超时/API故障失败时使用）
+
+当主 cron job 因空闲超时（DeepSeek API 无响应）、token 过期、或浏览器冻结等故障未能生成输出时，可通过手动重试恢复。**核心原则：先查文件，再决定是否重试。**
+
+**执行流程：**
+1. **检查本地文件**：`ls -la /usr/local/files/docs/stock/ | grep "YYYY-MM-DD-早盘快报\|YYYY-MM-DD-A股复盘"`。若文件存在且完整（JSON > 3KB）→ **回复 `[SILENT]`**（不推送任何内容）。
+2. **文件不存在或内容不完整** → 执行完整复盘流程（复用现有技能和数据源）。
+3. **单次重试策略**：无论重试成功或失败，都不创建新的 cron job。这是唯一一次重试机会。
+
+**关键原则：**
+- 即使 context 中看到截断的输出或 "FAILED" 字样，也必须以本地文件检查结果为准。文件存在且完整 = 任务成功，不做任何重试。
+- 文件不存在 = 主任务确实失败，继续执行重试。
+- `[SILENT]` 回复会静默抑制推送——健康状态下不应打扰用户。
+- 重试时复用上一交易日的本地复盘 JSON（`/usr/local/files/docs/stock/YYYY-MM-DD-A股复盘.json`）获取昨日盘面数据，避免重新拉取 API。
+
+**示例流程（早盘快报重试）：**
+```
+1. ls -la /usr/local/files/docs/stock/ | grep "YYYY-MM-DD-早盘快报"
+2. 无文件 → 读取昨日复盘 JSON（从本地文件）
+3. 采集隔夜美股（akshare Sina / 腾讯 API）
+4. 采集盘前消息（新浪财经早报/操盘必读文章）
+5. 生成 markdown + JSON → API 上报
+6. 不创建新 cron job
+```
+
 ### 模型切换
 
 两个 cron job 均建议使用轻量模型 `deepseek-v4-flash`（非旗舰模型 `deepseek-v4-pro`）——复盘是数据采集+格式化任务，不需要最强推理能力，轻量模型可显著降低 token 成本且减少 API 排队延迟。
