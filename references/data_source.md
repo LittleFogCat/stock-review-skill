@@ -12,10 +12,10 @@ A 股复盘数据源参考
     |------|------|------|
     | pyTDX 指数K线 | ✅ 稳定 | 上证4090.48 (-0.43%)，服务器 `60.12.136.250:7709` |
     | pyTDX 个股实时 | ✅ 稳定 | 五档盘口，需自行映射名称 |
-    | akshare Sina美股 | ✅ 稳定 | 道指-0.98%，纳指-1.34%，日线级别 |
+    | akshare Sina美股 | ✅ 稳定 | 道指-0.98%、纳指-1.34%，日线级别 |
     | akshare THS板块排名 | ❌ 失效 | 同花顺改页面结构，`No tables found` |
-    | akshare 东财行业板块 | ❌ 被封 | 东财全面封杀，`RemoteDisconnected` |
-    | akshare 东财概念板块 | ❌ 被封 | 同上，所有请求被拒绝 |
+    | akshare 东财行业/概念板块 | ❌ 被封 | akshare 封装加了某些特征被服务端识别 |
+    | **东财 push2 API 直接调用** | ✅ **可用**（2026-06-25 实测复活） | 申万行业/概念板块/个股涨跌幅榜全部返回 200 OK |
 
     **核心原则：任何渠道都不能尽信，失败时必须尝试下一层回退。**
 
@@ -344,7 +344,7 @@ A 股复盘数据源参考
     
     
     
-    ## 采集策略建议（2026-06-22 更新）\n\n    1. **指数数据：** 腾讯 API → pyTDX（任一可用即可，双保险）\n    2. **板块涨幅/热点：多层回退（见下方章节）**\n    3. **新闻消息：** 浏览器 → CLS电报 + JRJ首页；浏览器冻结 → Sina财经首页标题 + 专栏文章\n    4. **个股异动/涨停：** JRJ「妖股直击」+ 东财公告 API\n    5. **美股数据：** akshare Sina → 腾讯 API usDJI/usIXIC/usINX（双保险）\n    6. **个股公告：** 东财公告 API `np-anotice-stock` ✅ 稳定\n    7. **当日复盘综合摘要（推荐）：** Sina ETF收评 `/stock/bxjj/` — 单篇文章获取指数/成交量/板块ETF表现/消息面，替代浏览器组合\n    8. ⚠️ **已弃用**：东财板块排名 API（2026-06-15）、akshare THS板块（2026-06-19）、akshare 东财行业/概念板块（2026-06-19）
+    ## 采集策略建议（2026-06-22 更新）\n\n    1. **指数数据：** 腾讯 API → pyTDX（任一可用即可，双保险）\n    2. **板块涨幅/热点：多层回退（见下方章节）**\n    3. **新闻消息：** 浏览器 → CLS电报 + JRJ首页；浏览器冻结 → Sina财经首页标题 + 专栏文章\n    4. **个股异动/涨停：** JRJ「妖股直击」+ 东财公告 API\n    5. **美股数据：** akshare Sina → 腾讯 API usDJI/usIXIC/usINX（双保险）\n    6. **个股公告：** 东财公告 API `np-anotice-stock` ✅ 稳定\n    7. **当日复盘综合摘要（推荐）：** Sina ETF收评 `/stock/bxjj/` — 单篇文章获取指数/成交量/板块ETF表现/消息面，替代浏览器组合。**同时检查 `/tob/` 路径**的综合收评文章（2026-06-24 验证可用），其直接给出板块排名和个股涨停情况，与 bxjj 互补。\n    8. ⚠️ **已弃用**：东财板块排名 API（2026-06-15）、akshare THS板块（2026-06-19）、akshare 东财行业/概念板块（2026-06-19）
 
     5. 东方财富公告 API（np-anotice-stock.eastmoney.com）
 
@@ -438,6 +438,23 @@ A 股复盘数据源参考
     
     **已知风险**：文章链接有失效可能（404 或跳转），建议先通过首页搜索标题确认链接有效；隔夜文章可能被新文章覆盖，优先选择日期匹配的链接。
 
+    **文章级内容提取：综合收评（tob 栏目）— 当日复盘又一可靠数据源（2026-06-24 新增）**
+
+    除了 bxjj 和 snipe，Sina 财经还在 `/tob/` 路径下发布综合收评文章。这些文章在收盘后（15:00-16:00）发布，内容最为全面——直接给出三大指数涨跌幅、涨跌家数、盘面板块涨幅/跌幅排名、个股涨停情况、及当日政策消息。
+
+    **URL 模式**：`https://finance.sina.com.cn/tob/YYYY-MM-DD/doc-*.shtml`
+
+    **实测状态**（2026-06-24 验证）：
+    - `finance.sina.com.cn/tob/2026-06-24/doc-inienxzs1435193.shtml` → ✅ 200（标题：「收评：深成指、创指均涨超1% 芯片产业链爆发 下跌个股超4000只」）
+    - 内容结构：三大指数数据 → 板块涨幅/跌幅排名 → 涨停个股 → 分类消息面（政策/产业/海外）
+
+    **与 bxjj ETF收评的区别**：
+    - bxjj：以 ETF 维度切入，列出各板块 ETF 精确涨跌幅，适合填充 topSectors 的 changePercent
+    - tob：以大盘总览维度切入，直接给出板块排名（如「能源金属、存储芯片、光刻机板块涨幅居前；影视院线、粮食概念、旅游及酒店板块跌幅居前」），更适合填充 summary 和排序
+    - **推荐组合**：bxjj 获取精确涨跌幅 + tob 获取板块排名和消息面分类 → 两者互补
+
+    **⚠️ bxjj 文章内容类型鉴别**：并非所有 bxjj 路径下的文章都是 ETF 收评。部分文章为深度专题报道（如 2026-06-24 的「英伟达要求PCB厂商降价10%？PCB厂商、市场人士称传闻存在明显夸大和误读」），内容聚焦单一产业分析而非当日全市场复盘。**解决办法**：标题中不含「ETF收评」或「收评」字样的 bxjj 文章跳过，仅提取标题含当日市场总结特征的文章。
+
     **文章级内容提取：实时板块/概念分析稿（当日复盘场景专用）**
 
     当需要当日盘中板块热点的翔实描述时（尤其是当日复盘中的概念板块和龙头股判断），可提取 Sina 财经的 `/stock/snipe/` 栏目下的实时分析文章。这些文章在交易时段内发布，以简短的陈述句总结当日活跃板块和龙头个股表现。
@@ -496,19 +513,26 @@ A 股复盘数据源参考
     - 时效性：收盘后发布，不适用于早盘快报模式
     - 历史文章也可能在首页留存，搜索时需确保日期匹配（YYYY-MM-DD 匹配当日）
 
-    7. 东方财富板块排名 API（push2.eastmoney.com）— ⚠️ 已全面弃用（2026-06-15）
+    ## 东方财富 API（push2.eastmoney.com）— ⚠️ 部分恢复（2026-06-25 更新）
 
-    **状态：全面不可用。** 行业板块（`fs=m:90+t:2`）和概念板块（`fs=m:90+t:3`）的所有请求（`po=1` 降序和 `po=0` 升序）均返回 `Remote end closed connection without response`。多种 User-Agent 均无效，重试无效。**不要再调用此接口。**
+    **状态更新**：2026-06-15 全面失败的结论在 2026-06-25 实测被推翻——**直接调用 push2.eastmoney.com/api/qt/clist/get 实际可用**。详见本文件上文「东财 push2 API 实测更新」章节。
 
-    ~~用法示例（领涨板块 TOP15）：~~
+    **真正失效的部分**：
+    - akshare `_em` 系列封装（akshare 内部请求头被服务端识别）
+    - ~~浏览器嵌入 iframe 加载~~（数据接口直接调用无此问题）
+
+    **重新启用**：申万行业板块、概念板块、个股涨跌幅榜（含涨停统计）三个场景均可直接调用 push2 API，配合 `urllib.request` 或 `python3 /tmp/script.py` 模式。
+
+    **用法示例（领涨板块 TOP15）**：
     ```python
-    # ⚠️ 已弃用 — 此代码不再有效
-    ```
+    import urllib.request, json
 
-    **替代方案（板块热度获取）**：
-    - **腾讯 API pt 板块代码**：批量查询已验证可用的 13 个板块代码（见上文腾讯 API 章节），返回申万二级行业涨跌幅。虽覆盖不全但能提供定量数据。
-    - **Sina 财经首页标题**：大量标题以陈述句格式描述当日主线（如「有色金属板块爆发」「CPO/PCB方向集体走强」），可直接作为板块热点结论使用。
-    - **个股聚合**：用腾讯 API 拉取 20-30 只代表性个股后，按行业手工聚合涨跌幅均值，以「基于已核实的代表性个股数据整理」标注。
+    url = "https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=15&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f1,f2,f3,f4,f12,f14"
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    data = json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8', 'replace'))
+    for s in data['data']['diff']:
+        print(f"{s['f14']}({s['f12']}): {s['f3']:+.2f}%")
+    ```
 
     ---
 
@@ -516,7 +540,7 @@ A 股复盘数据源参考
 
     当浏览器会话完全冻结（所有 `browser_*` 命令超时 30-60s，不限于特定 URL），立即切换到纯 HTTP 采集路径，不再尝试任何 browser 命令：
 
-    | 数据需求 | 回退方案 | 可靠性 |\n    |---------|---------|--------|\n    | 指数行情 | 腾讯 API `qt.gtimg.cn` → `execute_code` + `urllib` | ✅ 稳定 |\n    | 板块排名（领涨） | ~~东财 API~~ → 腾讯 API pt 板块代码（已验证 13 个）+ Sina 新闻标题提取板块线索 + 个股按行业聚合 | ⚠️ 多源拼接 |\n    | 概念排名 | ~~东财 API~~ → Sina 新闻标题 + 个股腾讯 API 查询 | ⚠️ 标题级推断 |\n    | 个股涨跌幅 | 腾讯 API 个股代码 → `execute_code` | ✅ 稳定 |\n    | **当日复盘综合摘要** | **Sina ETF收评 `/stock/bxjj/` → `execute_code`** | ✅ **强烈推荐** |\n    | 消息面/新闻 | Sina 财经首页标题提取 → ETF收评文章（含分类新闻） | ⚠️ 标题级摘要 |\n    | 领跌板块 | 腾讯 API 拉弱势个股 → 以代表性个股均值描述 + 标注估算 | ⚠️ 估算性质 |\n    | 公告/异动 | 东财公告 API `np-anotice-stock` → `execute_code` | ✅ 稳定 |
+    | 数据需求 | 回退方案 | 可靠性 |\n    |---------|---------|--------|\n    | 指数行情 | 腾讯 API `qt.gtimg.cn` → `execute_code` + `urllib` | ✅ 稳定 |\n    | 板块排名（领涨） | ~~东财 API~~ → 腾讯 API pt 板块代码（已验证 13 个）+ Sina 新闻标题提取板块线索 + 个股按行业聚合 | ⚠️ 多源拼接 |\n    | 概念排名 | ~~东财 API~~ → Sina 新闻标题 + 个股腾讯 API 查询 | ⚠️ 标题级推断 |\n    | 个股涨跌幅 | 腾讯 API 个股代码 → `execute_code` | ✅ 稳定 |\n    | **当日复盘综合摘要** | **Sina ETF收评 `/stock/bxjj/` + 综合收评 `/tob/` → `curl -o` + `python3 /tmp/`** | ✅ **强烈推荐（两者互补）** |\n    | 消息面/新闻 | Sina 财经首页标题提取 → ETF收评文章（含分类新闻） | ⚠️ 标题级摘要 |\n    | 领跌板块 | 腾讯 API 拉弱势个股 → 以代表性个股均值描述 + 标注估算 | ⚠️ 估算性质 |\n    | 公告/异动 | 东财公告 API `np-anotice-stock` → `execute_code` | ✅ 稳定 |
 
     执行要点：
     - 单次 `execute_code` 脚本内串行调用多个 API，按 1-2 秒间隔
@@ -547,7 +571,75 @@ A 股复盘数据源参考
     示例代码见上方腾讯 API 和东方财富公告 API 章节。
 
 
-    > 以上数据源状态基于 2026-06-19 验证。腾讯 API 指数/个股正常，板块 pt 代码大量不可用（仅 39% 返回数据）。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页栏目链接点击不跳转（JS 驱动），但标题摘要已覆盖关键结论。东财公告 API 稳定可用（np-anotice-stock）。pyTDX 服务器 `60.12.136.250:7709` 可用。akshare Sina 美股可用。akshare THS + 东财行业/概念板块均不可用。
+    ## 东财 push2 API 实测更新（2026-06-25 验证复活）
+
+**重要修正**：skill 早期判断的「东财 push2 API 全面封杀」在 2026-06-25 实测**不成立**——直接用 `urllib.request`/`curl` 调用 `push2.eastmoney.com/api/qt/clist/get` 系列接口返回 200 OK + 完整 JSON 数据。akshare 的 `_em` 函数确实失败（走的同一后端但 akshare 加了某些被服务端识别的特征），但直接调用原始 API 没问题。
+
+### 实测可用的 endpoint 模板
+
+```python
+import urllib.request, json
+
+def fetch_em(url):
+    req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+    return json.loads(urllib.request.urlopen(req, timeout=15).read().decode('utf-8', 'replace'))
+
+# 1. 申万行业板块（按涨幅降序）
+d = fetch_em("https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:90+t:2&fields=f1,f2,f3,f4,f12,f14")
+ind = sorted(d['data']['diff'], key=lambda x: -x.get('f3', 0))
+
+# 2. 概念板块（按涨幅降序）
+d = fetch_em("https://push2.eastmoney.com/api/qt/clist/get?...&fs=m:90+t:3&fields=f1,f2,f3,f4,f12,f14")
+
+# 3. 个股涨跌幅榜（用于涨停统计）
+d = fetch_em("https://push2.eastmoney.com/api/qt/clist/get?pn=1&pz=200&po=1&np=1&fltt=2&invt=2&fid=f3&fs=m:0+t:6,m:0+t:13,m:0+t:80,m:1+t:2,m:1+t:23&fields=f1,f2,f3,f4,f12,f14")
+# po=1 降序为涨幅榜，po=0 升序为跌幅榜
+diff = d['data']['diff']
+zt_count = sum(1 for s in diff if s.get('f3', 0) >= 9.9)
+dt_count = sum(1 for s in diff if s.get('f3', 0) <= -9.9)
+```
+
+### 返回字段说明
+
+| 字段 | 含义 |
+|------|------|
+| `f2` | 当前价 |
+| `f3` | 涨跌幅（百分比，如 6.43 表示 +6.43%） |
+| `f6` | 成交额（元） |
+| `f12` | 代码（板块代码 BKxxxx，个股代码 6位数字） |
+| `f14` | 名称 |
+| `total` | 总条目数 |
+
+### 为什么 akshare 失败但直连成功？
+
+akshare `_em` 函数内部可能在请求头中加了 `Referer: https://data.eastmoney.com/` 或特定的 cookie/UA 特征，被服务端识别为爬虫后拒绝。**直接 `urllib.request` + `Mozilla/5.0` 简单 UA 反而能正常通过**。如果将来服务端也加入 UA 检测，回退方案：试用 `User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0`。
+
+### 实际复盘应用
+
+2026-06-25 复盘从该 API 一次性获取：
+- 申万行业板块 TOP30 涨幅 + 完整跌幅 TOP15（29 个下跌行业板块）
+- 概念板块 TOP30 + 下跌板块（5 个下跌概念）
+- 个股涨幅榜 TOP200，统计出**涨停 100 只**（含 20% 涨停 8 只），**跌停 0 只**
+- 跌幅榜 TOP30 用于领跌板块分析
+
+**这是当日复盘板块数据的首选来源**，取代了 skill 早期推荐的「浏览器 CLS 侧边栏 → JRJ 涨停复盘 → 多源拼接」的多层回退路径。
+
+---
+
+## JRJ 首页死页面现象（2026-06-25 验证）
+
+**实测**：`https://stock.jrj.com.cn/` 在本服务器上 curl/浏览器抓取始终只返回 12-13 KB HTML 死页面，仅含头部和频道导航 HTML，**不包含任何 A 股头条、涨停复盘、ETF复盘资讯、妖股直击等数据栏目**。尝试加 Referer（`https://www.baidu.com`）和 Chrome UA 均无效。
+
+**结论**：skill 早期「JRJ 首页聚合性强、SSR 渲染单次 snapshot 获取所有栏目」的描述在本环境下不成立。**JRJ 不再是当日复盘的数据入口**。
+
+**替代方案**：
+- 板块热点主线 → Sina 综合收评 `/tob/` 一句话总结（最接近原「涨停复盘」栏目）
+- 板块精确涨跌幅 → 东财 push2 API（见上节）
+- 消息面分类 → Sina 操盘必读 `/stock/cpbd/` + Sina 综合收评 `/tob/`（两者都按政策/产业/海外/个股分类）
+
+---
+
+> 以上数据源状态基于 2026-06-25 验证。腾讯 API 指数/个股正常。东财 push2 API **实测复活**——直接 `urllib.request` 调用返回完整 JSON，是当日复盘板块数据首选。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页 12K 死页面无法采集数据，**改用 Sina /tob/ 综合收评文章替代**。东财公告 API 稳定可用（np-anotice-stock）。pyTDX 服务器 `60.12.136.250:7709` 可用。akshare Sina 美股可用。akshare THS 失效。akshare 东财系列（_em 封装）失效但 push2 API 直接调用成功。
 
     ---
 
