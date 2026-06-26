@@ -639,7 +639,7 @@ akshare `_em` 函数内部可能在请求头中加了 `Referer: https://data.eas
 
 ---
 
-> 以上数据源状态基于 2026-06-25 验证。腾讯 API 指数/个股正常。东财 push2 API **实测复活**——直接 `urllib.request` 调用返回完整 JSON，是当日复盘板块数据首选。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页 12K 死页面无法采集数据，**改用 Sina /tob/ 综合收评文章替代**。东财公告 API 稳定可用（np-anotice-stock）。pyTDX 服务器 `60.12.136.250:7709` 可用。akshare Sina 美股可用。akshare THS 失效。akshare 东财系列（_em 封装）失效但 push2 API 直接调用成功。
+> 以上数据源状态基于 2026-06-26 验证。腾讯 API 指数/个股正常。东财 push2 API **间歇性可用**（6/25 成功、6/26 失败）——应将其视为「可尝试」而非「可靠」来源，失败时立即回退至 Sina bxjj ETF收评+Sina cpbd操盘必读组合。CLS 电报日期选择器可用，侧边栏板块排名（申万分类）在 snapshot 中可见但长度有限。JRJ 首页 12K 死页面无法采集数据，**改用 Sina /tob/ 综合收评文章替代**。东财公告 API 稳定可用（np-anotice-stock）。pyTDX 服务器 `60.12.136.250:7709` 可用。akshare Sina 美股可用。akshare THS 失效。akshare 东财系列（_em 封装）失效。
 
     ---
 
@@ -693,7 +693,7 @@ akshare `_em` 函数内部可能在请求头中加了 `Referer: https://data.eas
 
     | 渠道 | 失效时间 | 症状 |
     |------|---------|------|
-    | 东财板块排名 push2 API | 2026-06-15 | `RemoteDisconnected` |
+    | 东财板块排名 push2 API | **⚠️ 间歇性**（6/25 可用, 6/26 不可用） | `RemoteDisconnected` — 有时成功有时失败，同一天不同调用可能不同结果 |
     | 东财板块排名 akshare封装 | 2026-06-19 | 同上（走的同一后端） |
     | akshare THS 同花顺板块 | 2026-06-19 | `No tables found` |
     | 东财概念板块 akshare | 2026-06-19 | `RemoteDisconnected` |

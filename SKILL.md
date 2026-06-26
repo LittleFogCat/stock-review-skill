@@ -426,6 +426,66 @@ user-invocable: true
 
 ## 常见陷阱
 
+### 🚨 patch 工具的 `\n` 转义陷阱（2026-06-26 SKILL.md 损坏事故）
+
+**事故回顾**：用 `patch` 工具写入大段 markdown（如风险信号触发机制、反编造红线等新增章节）时，传入的 `new_string` 参数中**真实的换行符被当成字面字符串 `\n`** 写入，导致整个章节被压成一行。
+
+**事故症状**：
+- 文件总行数从 914 → 1143（看似增加，但实际是损坏合并）
+- 某些单行长度达 **3649 字符**
+- `grep` 该章节会看到整段都是 `\n16. ... \n17. ...` 这种字面 `\n`
+- 文件虽然 commit 成功，但**实际不可读**
+
+**触发条件**：
+- patch 工具的 `old_string` / `new_string` 参数中包含大段 markdown（>30 行）
+- new_string 内部含多个 `\n\n`（段落分隔符）
+- 某些 patch 工具实现会错误处理嵌套转义
+
+**检测方法**：
+```bash
+# 找出所有含字面 \n 且过长的行
+python3 -c "
+with open('SKILL.md', 'r') as f:
+    for i, line in enumerate(f.read().split('\n'), 1):
+        if '\\\\n' in line and len(line) > 200:
+            print(f'第 {i} 行: {len(line)} 字符')
+"
+```
+
+**修复方法**（已实战验证 2026-06-26）：
+```python
+# 在守门员子agent的监督下执行
+import shutil
+filepath = "/path/to/SKILL.md"
+backup = f"/tmp/SKILL.md.backup.{int(time.time())}"
+shutil.copy2(filepath, backup)  # 先备份！
+
+with open(filepath, 'r', encoding='utf-8') as f:
+    content = f.read()
+lines = content.split('\n')
+fixed = []
+for line in lines:
+    if '\\n' in line:
+        fixed.extend(line.split('\\n'))  # 字面 \n → 真实换行
+    else:
+        fixed.append(line)
+with open(filepath, 'w', encoding='utf-8') as f:
+    f.write('\n'.join(fixed))
+```
+
+**预防措施**：
+- ⚠️ **大段 markdown（>30行）不要用 patch** — 改用 `write_file` 工具整体覆写
+- ✅ 小段修改（<10行）用 patch 是安全的
+- ✅ patch 后用 `wc -l` 检查行数是否符合预期
+- ✅ patch 后用 grep 验证关键章节格式
+
+**实测数据**：
+- 修复前：1143 行，3 行严重损坏（最严重 3649 字符）
+- 修复后：1265 行，0 行损坏
+- 修复用时：30 秒（守门员子agent执行）
+
+---
+
 ### 🚨 2026-06-26 第二大教训：涛涛车业事件——虚构数据伪装成事实（性质比铜关税更严重）
 
 **事件回顾**：主人要求"深入研究涛涛车业+预测Q2业绩"时，小奶茉在分析结尾写了：

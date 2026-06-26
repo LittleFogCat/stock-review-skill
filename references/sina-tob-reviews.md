@@ -224,6 +224,49 @@ if count_match:
 
 **应对**：在解析后用关键词过滤（如只保留含「板块」「涨」「跌」「公司」等关键词的段落），或用更严格的选择器。
 
+### 风险 1b（2026-06-26 验证）：`<p>` 标签提取完全失败，meta description 替代方案
+
+**症状**：`/tob/` 文章页面中既无 `<div id="artibody">`，`<div class="article">` 又返回空内容，且 `<p>` 标签提取仅返回专题提示语（如「专题：A股下半年掘金「结构牛」」），不包含正文。提取内容 `< 100 字符`。
+
+**根因**：Sina `/tob/` 页面的 HTML 结构与 `/stock/bxjj/` 和 `/stock/cpbd/` 不同——正文通过 JavaScript 动态加载，SSR `<p>` 标签仅包含头部专题栏和导航，不包含实际收评内容。
+
+**应对 — 多层提取方案**（按优先级）：
+
+Level 1：`<meta name="description">` 提取（快速回退）：
+```python
+desc = re.search(r'<meta name="description" content="([^"]+)"', raw_html)
+if desc:
+    summary = desc.group(1)
+    # 示例：「6月26日消息，市场全天震荡调整，创指跌超4%，沪指跌超2%...」
+    # 虽短（~200-300 字符），但包含关键盘面定性 + 板块名称 + 龙头股
+```
+meta description 在 Sina 页面上始终存在且格式稳定，可作为 `/tob/` 文章的**最小可用摘要**。
+
+Level 2：`<p>` 标签全量提取 + 长度过滤判断：
+```python
+body_text = '\n'.join(re.findall(r'<p[^>]*>(.*?)</p>', raw_html, re.DOTALL))
+body_text = html_lib.unescape(re.sub(r'<[^>]+>', '', body_text))
+body_text = re.sub(r'\s+', ' ', body_text).strip()
+if len(body_text) < 200:  # 提取失败
+    # fall through to Level 3
+```
+**判断标准**：`len(body_text) < 200` 或只包含「专题」类文字 → 提取失败。
+
+Level 3：`/cpbd/` 操盘必读文章替代（当日复盘场景）：
+```python
+start = raw_html.find('<!-- 正文开始')
+end = raw_html.find('<!-- 正文结束')
+if start >= 0 and end >= 0:
+    body = raw_html[start:end]
+# cpbd 文章的 <!-- 正文开始 --><!-- 正文结束 --> 标记始终存在
+```
+操盘必读文章包含：宏观政策、行业新闻、公司公告、环球市场四节，总量 ~3000-5000 字符，足以填充 `news[]` 字段。2026-06-26 实测验证：cpbd 文章成功提取 ~4000 字符全文。
+
+Level 4：`/bxjj/` ETF收评文章替代（获取指数+板块数据）：
+bxjj 文章的 `<p>` 标签提取成功率最高（2026-06-26 验证成功），提供三大指数涨跌幅、成交额、涨跌家数、各板块 ETF 精确涨跌幅。适合填充 `markets` 和 `topSectors`/`fallingSectors` 的 `changePercent`。
+
+**2026-06-26 实测结果**：/tob/ 文章 `<p>` 标签提取仅返回 58 字符专题语；meta description 返回 280 字符摘要（含指数涨跌幅 + 光刻机/半导体硅片板块 + 龙头股）；cpbd 文章成功提取 ~4000 字符全文。**推荐组合**：meta description 做盘面摘要 + cpbd 做消息面全量 + bxjj 做板块涨跌幅数据。
+
 ### 风险 2：文章标题诱导性内容
 
 部分文章标题含「ETF收评」「收评」「早报」等关键词，但实际内容可能是专题报道或单只股票分析。
