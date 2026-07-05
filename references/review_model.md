@@ -40,7 +40,7 @@
 | focusStocks[].stocks[].reason | string | 个股关注理由（如封板表现、放量突破等） |
 | title | string | **强制格式**：当日复盘 → `YYYY年M月D日（周X）A股复盘`；早盘快报 → `YYYY年M月D日早盘快报`。不得自由发挥。 |
 | content | string | 文章详情内容，以 markdown 格式存储，可为空 |
-| type | number | 类型：`1` 早盘快报、`2` 今日复盘。可为空，服务器将根据时间自行判断。 |
+| type | number | **必填**。类型：`1` 早盘快报、`2` 今日复盘。不可省略——若缺失，服务器返回 code 400 "type 字段必须为 0（自动）、1（早盘快报）或 2（今日复盘）"。2026-06-29 实测验证。 |
 
 JSON 示例见：[JSON 示例](../assets/review_sample.json)
 

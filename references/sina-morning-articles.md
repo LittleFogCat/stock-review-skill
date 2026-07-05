@@ -116,6 +116,33 @@ LME期铜下跌2%，报13371美元/吨...
 2. **首页链接可能被新闻客户端链接覆盖**：搜索时可能只找到 `https://finance.sina.com.cn/doc/...` 格式的链接，需确认是目标栏目的文章。
 3. **SSL 证书问题**：Sina 使用标准 HTTPS，无需特殊处理。
 4. **内容中可能包含 VIP 课程推广**：`VIP课程推荐`、`百位牛人在线解读` 等非新闻内容，应在处理后过滤。
+5. **⚠️ cpbd/bxjj/y 路径可能返回 403（2026-06-29 验证）** — 三条路径（`/stock/cpbd/`、`/stock/bxjj/`、`/stock/y/`）均可能同时返回 HTTP 403 Forbidden，导致无法获取早盘文章。此时回退到 Sina 财经首页标题提取（`finance.sina.com.cn/stock/`），该页面在本服务器上始终可用，返回 200+ 新闻标题。
+
+### 403 回退：Sina 首页标题提取
+
+当 cpbd/bxjj/y 三条路经同时 403 时，使用首页标题提取替代：
+
+```python
+import urllib.request, re
+
+url = "https://finance.sina.com.cn/stock/"
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"})
+with urllib.request.urlopen(req, timeout=15) as resp:
+    html = resp.read().decode("utf-8", errors="replace")
+
+# 提取所有 8 字符以上的标题
+titles = re.findall(r'<a[^>]*href="[^"]*"[^>]*>([^<]{8,60})</a>', html)
+seen = set()
+news_items = [t.strip() for t in titles if t.strip() not in seen and not seen.add(t.strip())]
+
+# 提取地缘/政策/科技/公司等分类内容
+for title in news_items:
+    if any(k in title for k in ["美伊", "中俄", "央行", "证监会", "半导体", "光模块",
+                                "芯片", "AI", "涨价", "预增", "公告", "定增", "IPO"]):
+        print(f"  {title}")
+```
+
+**2026-06-29 早盘快报实测**：cpbd/bxjj/y 全部 403，首页提取得到 200+ 条标题，涵盖周末全部重大事件（美伊停火、中俄巡航、GPT-5.6 发布、核聚变突破、恒逸石化预增等），足以支撑完整早盘快报的消息面章节。
 
 ---
 
