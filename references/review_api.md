@@ -117,3 +117,219 @@ print("服务器有、本地无:", sorted(server_dates - local_dates) or "（无
 - GET 返回的复盘记录可能重复（同一日期多条），对比前先去重 `set(r.get("date") for r in reviews)`。
 - 同一日期的多条记录可能时间戳不同、内容不同（cron 多次补跑或手工修正导致），需要时再按 `_id` 单独核对。
 - `STOC... 变量的来源仍是 xiaoniu.tech 复盘 API 凭证。
+
+---
+
+## 常见错误码与排错
+
+xiaoniu.tech 复盘 API 在字段类型不符或必填字段缺失时，会返回 HTTP 200 + `{"code": 400, "msg": "..."}`。以下是已实测验证的常见错误码、根因和解决办法。
+
+### `todayHot` 字段必须是对象而非 null（"今日热点格式错误"）
+
+早盘快报 JSON 中若将 `todayHot` 设为 `null` 或不包含该字段，API 返回 HTTP 200 + `code: 400, msg: "今日热点格式错误"`。review_model.md 中 `todayHot` 的类型为 `object`，不是 optional/nullable。
+
+**解决办法**：对于早盘快报（无盘中数据），`todayHot` 必须设为包含空数组的对象：
+
+```json
+"todayHot": {
+  "topSectors": [],
+  "concepts": [],
+  "fallingSectors": [],
+  "summary": "早盘快报模式，不包含当日盘中数据。"
+}
+```
+
+`summary` 可简要描述前一日盘面或留空字符串，但字段本身不能省略。构建 JSON 时用 Python 代码保证所有字段类型匹配 review_model.md。
+
+### `focusSectors` 字段名错误（"关注板块第 N 项板块名称不能为空"）
+
+**现象**：早盘快报上报时 API 返回 HTTP 200 + `{"code":400,"msg":"关注板块第 1 项板块名称不能为空"}`。明明已填入 `"sector": "存储芯片"`，但 API 仍报名称不能为空。
+
+**根因**：`focusSectors` 和 `focusStocks` 使用了不同的字段命名约定，极易混淆：
+
+| 字段 | 字段名 | 类型 | 示例 |
+|------|--------|------|------|
+| `focusSectors[].name` | **`name`** | string | `"存储芯片"` |
+| `focusSectors[].reason` | **`reason`** | string | `"美光暴涨+15%催化"` |
+| `focusStocks[].sector` | **`sector`** | string | `"存储芯片"` |
+
+直觉上容易认为 `focusSectors` 也用 `sector` 字段，但根据 review_model.md，`focusSectors` 的板块名称字段是 `name`（附有 `reason` 字段），而 `focusStocks` 的分组字段才是 `sector`。
+
+**解决办法**：
+1. 构建 JSON 前务必对照 `review_model.md` 确认 `focusSectors[].name` 和 `focusSectors[].reason` 两个字段
+2. `focusSectors` 的结构为：`{"name": "板块名", "reason": "短线关注理由", "stocks": [...]}`
+3. `focusStocks` 的结构为：`{"sector": "板块名", "stocks": [...]}`
+4. 2026-06-26 早盘快报实测验证：使用 `name` 后上报成功返回 code 200
+
+### `focusStocks` 格式错误（"所属板块不能为空"）
+
+**现象**：早盘快报上报时 API 返回 HTTP 200 + `{"code":400,"msg":"明日关注个股第 N 项所属板块不能为空"}`。这是因为 `focusStocks` 的结构是**按板块分组的嵌套格式**，而非扁平数组。
+
+**错误格式（扁平数组，会被 API 拒绝）**：
+
+```json
+"focusStocks": [
+  {"code": "603986", "name": "兆易创新", "reason": "..."},
+  {"code": "600584", "name": "长电科技", "reason": "..."}
+]
+```
+
+**正确格式（按板块分组）**：
+
+```json
+"focusStocks": [
+  {
+    "sector": "存储芯片",
+    "stocks": [
+      {"code": "603986", "name": "兆易创新", "reason": "..."}
+    ]
+  },
+  {
+    "sector": "先进封装/封测",
+    "stocks": [
+      {"code": "600584", "name": "长电科技", "reason": "..."}
+    ]
+  }
+]
+```
+
+**解决办法**：
+1. 构建 JSON 前必须对照 `review_model.md` 中的 `focusStocks` 字段定义确认结构
+2. `focusStocks[].sector` 是必填字符串，不能为空
+3. `focusStocks[].stocks` 是必填数组，每个元素包含 `code`、`name`、`reason` 三个字段
+4. 使用 Python 代码从结构化数据生成（如 `for sector in sectors: entry = {"sector": sector["name"], "stocks": [...]}`），而不是手动拼接
+
+**排查**：收到此错误时优先检查 focusStocks 的结构是扁平数组还是按板块分组的嵌套数组。2026-06-25 早盘快报中实测验证：扁平数组上报 → code 400，分组嵌套 → code 200。
+
+### `markets` 字段必须是对象而非数组（"市场总览格式错误"）
+
+根据 `review_model.md`，`markets` 是一个**对象**，包含 `summary`（string）、`indices`（array）、`volume`（string）三个字段。若错误地将 `markets` 设为指数数组（如 `[{"name":"道琼斯",...}]`），API 返回 HTTP 200 + `code: 400, msg: "市场总览格式错误"`。
+
+**正确格式**：
+
+```json
+"markets": {
+  "summary": "隔夜美股三大指数分化：道指+0.64%...",
+  "indices": [
+    {"code": "DJI", "name": "道琼斯", "close": 51999.67, "changePercent": 0.64, "reason": "..."},
+    {"code": "IXIC", "name": "纳斯达克", "close": 26376.34, "changePercent": -1.15, "reason": "..."},
+    {"code": "SPX", "name": "标普500", "close": 7511.35, "changePercent": -0.57, "reason": "..."}
+  ],
+  "volume": "未获取（隔夜美股）"
+}
+```
+
+**解决办法**：构建 JSON 时始终对照 `review_model.md` 的字段定义，确认 `markets` 是对象。对于早盘快报，`markets.summary` 和 `markets.volume` 必须存在（可填描述性字符串或「未获取」），不能省略。
+
+### `news[].content` 必须是数组而非字符串（"消息面第 N 项内容必须为数组"）
+
+**现象**：完整复盘 JSON 上报时 API 返回 HTTP 200 + `{"code":400,"msg":"消息面第 1 项内容必须为数组"}`。
+
+**根因**：`review_model.md` 中 `news[].content` 字段类型为 `array`（该分类下所有新闻条目的 markdown 字符串数组），但容易误以为是单个长字符串。LLM 直觉上把 `news[].content` 当作 `string` 填充（如 `"国务院李强主持国务院常务会议..."`），导致 API 拒绝接收。
+
+**正确格式**：
+
+```json
+"news": [
+  {
+    "category": "宏观与政策",
+    "title": "国务院总理李强主持国务院常务会议：加力推进人工智能创新突破",
+    "content": [
+      "国务院总理李强 6 月 29 日主持召开国务院常务会议，会议指出，要加力推进人工智能创新突破，加快关键技术攻关和超大规模智算集群建设。"
+    ],
+    "source": "新浪财经操盘必读"
+  },
+  {
+    "category": "产业与行业",
+    "title": "寒武纪成科创板首只万亿市值股票",
+    "content": [
+      "AI 算力龙头寒武纪（688256）今日盘中突破万亿市值，盘中最高 +8.91% 报 1614.09 元/股。"
+    ],
+    "source": "新浪财经"
+  }
+]
+```
+
+**注意**：每条新闻的 `content` 是一个**数组**（即使只有一条 markdown 字符串，也要包成单元素数组 `["..."]`）。多条相关新闻可放在同一 `content` 数组的不同元素里：`["第一条新闻全文 markdown", "第二条新闻全文 markdown"]`。
+
+**解决办法**：
+1. Python 脚本构建 news 时务必用列表包装：`"content": [n["content"]]`（即使只有一条）
+2. 上报前对照 `review_model.md` 验证 `news[].content` 是 `list[str]` 而非 `str`
+3. 收到"内容必须为数组"错误时，**只改 content 字段为数组后重新 POST**，不要重新跑整个采集流程
+
+**2026-06-30 实测**：当日复盘首次上报 `news[].content = "国务院李强..."`（字符串）→ code 400；修复为 `"content": ["国务院李强..."]`（单元素数组）→ code 200 上报成功（_id `6a436ec3d8fb6366079046cc`）。
+
+### `markets.indices[].reason` 缺失（"市场指数第 N 项评价不能为空"）
+
+**现象**：完整 JSON 上报时 API 返回 HTTP 200 + `{"code":400,"msg":"市场指数第 1 项评价不能为空"}`。
+
+**根因**：JSON 中 `markets.indices[]` 数组的每一项**必须有 `reason` 字段**（string 类型），不能为空。这与 `sectors[].reason` 字段类似。
+
+**解决办法**：
+
+```python
+# 为每个 index 条目补填 reason
+for idx in data["markets"]["indices"]:
+    pct = idx.get("changePercent", 0)
+    if pct <= -5: idx["reason"] = "大幅杀跌"
+    elif pct <= -3: idx["reason"] = "收跌"
+    elif pct <= 0: idx["reason"] = "小幅下跌"
+    elif pct <= 3: idx["reason"] = "小幅上涨"
+    else: idx["reason"] = "大涨"
+```
+
+同样，`todayHot.topSectors[].reason` 和 `todayHot.fallingSectors[].reason` 也需要有值。
+
+**2026-07-02 实测**：首次上报缺失 reason → code 400 "市场指数第 1 项评价不能为空"；补上 reason 后 → code 200 上报成功。
+
+### `type` 字段缺失（"type 字段必须为 0、1 或 2"）
+
+**现象**：完整 JSON 上报时 API 返回 HTTP 200 + `{"code":400,"msg":"type 字段必须为 0（自动）、1（早盘快报）或 2（今日复盘）"}`。
+
+**根因**：`review_model.md` 中 `type` 字段描述为"可为空"，但 2026-06-29 实测 API 实际**要求必填**，缺失时拒绝接收。
+
+**解决办法**：
+- 上报 JSON 中**必须包含** `type` 字段
+- 早盘快报：`"type": 1`
+- 当日复盘：`"type": 2`
+- 在 Python 脚本生成 JSON 时添加该字段：`data["type"] = 1`（或 2），然后再 `json.dump`
+- 该字段不影响本地 markdown 文件内容，仅用于 API 路由识别
+
+**2026-06-29 早盘快报实测**：第一次上报无 `type` 字段 → code 400；补上 `"type": 1` → code 200，上报成功。
+
+### 服务器自动补全 `focusSectors: []` / `focusStocks: []` 字段
+
+**现象**：当日复盘 JSON 中**故意不包含** `focusSectors` 和 `focusStocks` 字段（这两个字段仅属于早盘快报）。API 上报时返回的响应中却显示：
+
+```json
+"focusSectors": [],
+"focusStocks": []
+```
+
+**结论**：xiaoniu.tech API 后端在接收到缺失字段时，会**自动补全为空数组**（默认零值）。这与 review_model.md 中规定的「当日复盘不应包含 `focusSectors` / `focusStocks` 字段」**不冲突**——这是 server-side 的容错处理。
+
+**实测影响**：
+- 客户端不需要手动塞 `focusSectors: []` 来通过 server 校验
+- 即使完全省略这两个字段，API 仍返回 code 200
+- 报告内容（content / markdown body）依然不包含「明日关注板块」「明日关注个股」章节
+
+**反推结论**：该 API server 对当日复盘和早盘快报使用同一个 endpoint，依赖**客户端提交时是否带 focus 数据**来区分模式。当日复盘省略 → server 自动补空数组；早盘快报正常填 → server 正常存储。无需客户端特殊处理。
+
+### Token 预检 ping payload 模式（2026-06-25 验证）
+
+上报前用最小 payload 做 token 鉴权预检，避免完整复盘生成后才发现 token 过期浪费 LLM 调用：
+
+```bash
+# 上报到 xiaoniu.tech
+curl -X POST "https://xiaoniu.tech/api/stock/reviews" \
+  -H "Content-Type: application/json" \
+  -H "Authorization: Bearer ${STOCK_REVIEW_API_KEY}" \
+  -d '{"date":"2026-06-25","content":"ping"}'
+```
+
+- 返回 `HTTP 200 + code 200` → token 完全有效
+- 返回 `HTTP 200 + code 401` → token 过期，立即告知用户
+- 返回 `HTTP 200 + code 400 + msg: "市场总览格式错误"`（或类似）→ **token 有效但 payload 格式不对**（这是好信号——鉴权已通过，只是 ping 缺字段）
+- 返回 `Connection refused` → 服务器不可达
+
+**经验**：本次复盘实际收到 `code 400 "市场总览格式错误"`，证明鉴权通过，继续生成完整 JSON 上报最终成功。**不要因为 code 400 就放弃——必须看 msg 内容判断是格式问题还是鉴权问题。**

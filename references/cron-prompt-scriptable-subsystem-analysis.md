@@ -14,8 +14,8 @@ skill 当前 1836 行的 SKILL.md 中，**cron 必跑的样板代码累计 ~240 
 | # | 子系统 | 当前 prompt 行数 | 脚本化后 | 对应 SKILL.md 章节 |
 |---|---|---|---|---|
 | A | 互斥锁 + 文件检查 | ~30 行 | 1 行 | "🔴 Cron Pipeline 架构约束" 事故 A/C |
-| B | JSON 字段类型验证 | ~25 行 | 1 行 | "输出要求" 字段类型对照表 + Rule 5-8 |
-| C | Token 读取 | ~15 行 | 1 行 | "Token 预检流程" + "上报约束" Rule 18 |
+| B | JSON 字段类型验证 | ~25 行 | 1 行 | 1.4 JSON 类型约束（markets/todayHot/changePercent/content） |
+| C | Token 读取 | ~15 行 | 1 行 | "Token 预检流程" + 1.8 上报约束 |
 | D | API 上报 | ~30 行 | 1 行 | "API 上报方式" + "Python 写入陷阱" |
 | E | 行情数据采集 | ~50 行 | 1 行 | "执行流程·当日复盘" + 美股字段索引陷阱 |
 | F | final response 构造 | ~20 行 | 1 行 | "事故 A/B/D 修复" + read_file 行号剥离 |
@@ -49,7 +49,7 @@ skill 当前 1836 行的 SKILL.md 中，**cron 必跑的样板代码累计 ~240 
 ### B. validate_review_json.py
 **对应 SKILL.md 章节**：
 - "输出要求" 字段类型对照表（17 行）
-- "🔴 核心约束" Rule 5（markets 是对象）、Rule 6（todayHot 是对象）、Rule 7（changePercent 是 number）、Rule 8（content 必填）
+- 1.4 JSON 类型约束（markets 是对象、todayHot 是对象、changePercent 是 number、content 必填）
 
 **输入**：`python3 validate_review_json.py <json_file> [model_file]`
 
@@ -96,9 +96,9 @@ skill 当前 1836 行的 SKILL.md 中，**cron 必跑的样板代码累计 ~240 
 
 ### D. upload_review.py
 **对应 SKILL.md 章节**：
-- "🔴 核心约束" Rule 16（token 预检）
-- "🔴 核心约束" Rule 17（type 字段）
-- "🔴 核心约束" Rule 18（上报方式：Python 脚本）
+- 1.8 上报约束第 1 条（token 预检）
+- 1.8 上报约束第 2 条（type 字段）
+- 1.8 上报约束第 3 条（上报方式：Python 脚本）
 - "curl 上报时 Authorization header 触发 shell 'Bad substitution' 错误"（2026-06-25 事故）
 - "Python 写入 shell 脚本时 $VAR 字面量被吞掉的陷阱"
 

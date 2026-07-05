@@ -181,3 +181,88 @@ for title in news_items:
 | OpenAI GPT-5.6限制 | ❌ 未包含 | ✅ 政府干预详情 |
 
 **结论**：同日的财经早报 (`y/`) 在覆盖昨夜突发消息方面**远优于**前一天的操盘必读。当两个文章都可获取时，应**优先使用同日 y/ 文章**获取最新消息，以前日 cpbd 作为隔夜美股数据的交叉验证。2026-06-26 早盘快报中 y/ 文章一条龙覆盖了全部所需的盘前消息面。
+
+---
+
+## /roll/ 路径在 8:00 前稳定可用（2026-06-30 验证）
+
+### 现象
+
+早盘快报（08:00）触发时尝试拉取以下路径均返回 `HTTP Error 403: Forbidden`：
+- `https://finance.sina.com.cn/stock/cpbd/`
+- `https://finance.sina.com.cn/stock/cpbd/YYYY-MM-DD/`
+- `https://finance.sina.com.cn/stock/y/`
+- `https://finance.sina.com.cn/stock/y/YYYY-MM-DD/`
+
+### 根因推测
+
+这些路径的列表页在 8:00 前可能尚未刷新（编辑团队 8:00 后才更新当日内容），Sina 服务端对早期请求返回 403。
+
+### 回退路径
+
+**Sina 财经滚动 `/roll/` 路径在 8:00 前稳定可用**——2026-06-30 早盘实测验证的可靠新闻源。
+
+```python
+# ✅ 8:00 早盘快报的数据采集入口（当 /cpbd/ 403 时）
+url = "https://finance.sina.com.cn/stock/"
+req = urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0", "Referer": "https://www.baidu.com/"})
+with urllib.request.urlopen(req, timeout=15) as resp:
+    html = resp.read().decode("utf-8", errors="replace")
+
+# 找出所有 6/30 当日文章链接
+links = re.findall(r'href="(https://finance\.sina\.com\.cn/roll/2026-06-30/doc-[^"]+\.shtml)"', html)
+print(f"找到 {len(links)} 篇当日滚动文章")
+# 通常 30+ 篇，覆盖：宏观政策、产业新闻、公司公告、环球市场等
+
+# 提取单篇正文（用 <!-- 正文开始 --> 标记，与 cpbd 一致）
+url = links[0]
+req = urllib.request.Request(url, headers={"User-Agent": "...", "Referer": "..."})
+with urllib.request.urlopen(req, timeout=10) as resp:
+    html = resp.read().decode("utf-8", errors="replace")
+body_match = re.search(r'<!-- 正文开始 -->(.*?)<!-- 正文结束 -->', html, re.DOTALL)
+if body_match:
+    body = re.sub(r'<[^>]+>', '\n', body_match.group(1))
+```
+
+### 操作流程
+
+1. 第一次 GET `https://finance.sina.com.cn/stock/` → 列出所有当天文章链接（30+ 篇）
+2. 从标题筛选需要的内容（产业政策、公司公告、环球市场）
+3. 逐篇 GET 提取正文（`<!-- 正文开始 -->` 标记）
+4. 提取 `<meta name="description">` 作为快速摘要（每个文章页面都有）
+
+### 为什么 /roll/ 可用而 /cpbd/ 不可用
+
+- `/roll/` 是新浪财经的滚动新闻聚合页，每天 0:00 起就持续更新
+- `/cpbd/` 是每日 8:00 发布的「操盘必读」专题，8:00 前可能为编辑中状态
+- 早盘快报（08:00 触发）踩到 `/cpbd/` 不可用窗口的边界
+
+### JS 渲染数据源（2026-06-30 实测）
+
+- 金十数据 `https://www.jin10.com/`：HTTP 200 + 370KB HTML，但实际快讯内容由 JavaScript 渲染，curl 抓取仅返回导航/链接
+- 财联社 `https://www.cls.cn/telegraph`：HTTP 200 + 19 链接，同样无内容
+- 格隆汇 `https://www.gelonghui.com/`：HTTP 200 但需 JS 渲染
+- 华尔街见闻 `https://wallstreetcn.com/`：HTTP 200 但仅 2.7KB（页面基本是空壳）
+
+**结论**：这些 JS 渲染站点的 curl 抓取**仅返回 HTML 框架，不含数据**。早盘快报建议直接绕过它们，走 Sina `/roll/` 替代。
+
+---
+
+## 美股数据交叉验证：腾讯 API vs 新浪文章
+
+### 现象
+
+腾讯行情 API 的美股指数（`usDJI/usIXIC/usINX`）数据与新浪财经操盘必读文章中的美股收盘数据有时存在显著差异：
+
+- 2026-06-24 早盘快报中实测：腾讯 API 显示道琼斯 **+1.08%**，同日新浪操盘必读文章显示道琼斯 **-0.09%**（方向完全不同，差 1.17 pp）
+
+### 根因推测
+
+腾讯 API 的美股数据可能在非交易时段返回的是期货数据或错误的时间戳数据，而非实际收盘值。新浪操盘必读文章（每日 08:00 前更新）的数据来自编辑团队整理，更接近实际收盘值。
+
+### 优先级建议
+
+1. 美股收盘数据**优先采用新浪操盘必读/财经早报文章**（`/stock/cpbd/` 或 `/stock/y/`），其发布时间与早盘快报匹配，数据经过人工核实
+2. 腾讯 API 美股数据（`qt.gtimg.cn/q=usDJI,usIXIC,usINX`）仅作为**补充参考**，使用时务必检查索引 30（日期时间戳）是否指向目标交易日收盘后
+3. 若两数据源冲突：操盘必读文章 > 腾讯 API > akshare Sina 美股接口
+4. 早盘快报中标注数据来源为新浪操盘必读，而非腾讯 API
