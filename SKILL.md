@@ -96,6 +96,12 @@ user-invocable: true
 
 **4 个勾中任一为否 → 不得输出该结论。**
 
+**强制自检脚本**（推荐每次输出前调用）：
+```bash
+python scripts/anti_fabrication.py checklist   # 朗读清单 + 模糊措辞黑名单
+python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声明必须有 source/scope/timestamp
+```
+
 #### 1.2.4 D. 「逻辑推演」与「事实陈述」的强制区分
 
 输出时必须明确标注两类内容：
@@ -393,18 +399,19 @@ user-invocable: true
 
 ### 6.3 早盘快报
 1. 读取昨日复盘文件：从 `/usr/local/files/docs/stock/YYYY-MM-DD-A股复盘.json`（日期为前一个交易日）中提取昨日盘面数据——指数涨跌幅、领涨领跌板块、涨停/跌停家数、龙头个股走势、资金动向等结构化信息。若昨日复盘文件不存在（如周末/节假日），回退为腾讯 API 或 pyTDX 获取昨日收盘行情。
-2. 收集隔夜美股数据（道指/纳指/标普，可通过腾讯 API `qt.gtimg.cn/q=usDJI,usIXIC,usINX` 获取，数据稳定可靠；亦可尝试 Sina hq API `hq.sinajs.cn/list=gb_dji,gb_ixic,gb_inx` 获取，需添加 Referer 头，注意该 API 可能返回 403 Forbidden——2026-06-26 实测验证；或选用 akshare Sina `index_us_stock_sina()`）。**推荐优先使用腾讯 API**（`qt.gtimg.cn`），其在本服务器上稳定可用。Sina hq API 仅作为备选，若返回 403 则立即回退。对于个股行情（如美光 MU、英伟达 NVDA 等），同样使用腾讯 API `qt.gtimg.cn/q=usMU,usNVDA,...` 批量查询。
-3. 收集前日收盘至今的重大消息（**首选**：Sina 操盘必读文章 `finance.sina.com.cn/stock/cpbd/`，详见 [Sina 早报文章参考](./references/sina-morning-articles.md)；**备选**：Sina 财经早报 `finance.sina.com.cn/stock/y/`；**补充**：Sina 7x24 小时快讯 `finance.sina.com.cn/7x24/`（curl+grep 可提取富文本新闻，2026-06-24 验证通过）、JRJ 首页标题 `stock.jrj.com.cn/`、CLS 电报）。
-4. 整理今日关注线索（解禁、财报、政策事件等）。
-5. 整理今日关注板块：综合昨日复盘中的板块表现（延续强势/回调/轮动）+ 盘前催化方向，筛选 8 个以内，附带名称+短线关注理由。
-6. 整理今日关注个股：综合昨日复盘中的个股走势（封板/放量/突破/回调）+ 盘前催化线索，筛选 10 只以内标的，附带代码+名称+短线关注理由。
-7. 生成精简 markdown + JSON。**输出检查**（具体字段约束见 [5.3] + [1.6]）：
+2. **确定「隔夜美股」应拉哪一天**（先调 `python scripts/resolve_overnight_us.py <trigger_date>`，输出的 `us_data_date` 是真实应使用日期；若 `warning` 不为 null 则按其提示标注美股节假日；`label` 字段直接用于报告标题）。
+3. 收集隔夜美股数据（道指/纳指/标普）——按上一步返回的 `us_data_date` 通过腾讯 API `qt.gtimg.cn/q=usDJI,usIXIC,usINX` 拉取对应日数据。数据稳定可靠；亦可尝试 Sina hq API `hq.sinajs.cn/list=gb_dji,gb_ixic,gb_inx` 获取，需添加 Referer 头，注意该 API 可能返回 403 Forbidden——2026-06-26 实测验证；或选用 akshare Sina `index_us_stock_sina()`）。**推荐优先使用腾讯 API**（`qt.gtimg.cn`），其在本服务器上稳定可用。Sina hq API 仅作为备选，若返回 403 则立即回退。对于个股行情（如美光 MU、英伟达 NVDA 等），同样使用腾讯 API `qt.gtimg.cn/q=usMU,usNVDA,...` 批量查询。
+4. 收集前日收盘至今的重大消息（**首选**：Sina 操盘必读文章 `finance.sina.com.cn/stock/cpbd/`，详见 [Sina 早报文章参考](./references/sina-morning-articles.md)；**备选**：Sina 财经早报 `finance.sina.com.cn/stock/y/`；**补充**：Sina 7x24 小时快讯 `finance.sina.com.cn/7x24/`（curl+grep 可提取富文本新闻，2026-06-24 验证通过）、JRJ 首页标题 `stock.jrj.com.cn/`、CLS 电报）。
+5. 整理今日关注线索（解禁、财报、政策事件等）。
+6. 整理今日关注板块：综合昨日复盘中的板块表现（延续强势/回调/轮动）+ 盘前催化方向，筛选 8 个以内，附带名称+短线关注理由。
+7. 整理今日关注个股：综合昨日复盘中的个股走势（封板/放量/突破/回调）+ 盘前催化线索，筛选 10 只以内标的，附带代码+名称+短线关注理由。
+8. 生成精简 markdown + JSON。**输出检查**（具体字段约束见 [5.3] + [1.6]）：
    - ✅ 必须包含：`focusSectors` 和 `focusStocks` 字段（非空）
    - ✅ `todayHot` 必须是对象（含空数组），不是 null
    - ✅ `markets` 必须是对象（含 `summary`、`indices`、`volume`）
    - ✅ 标题格式：`YYYY年M月D日早盘快报`
    - ❌ 不得包含当日盘中数据
-8. 上报 API。（JSON 中 focusSectors 和 focusStocks 按上述第5、6步正常填入）
+9. 上报 API。（JSON 中 focusSectors 和 focusStocks 按上述第6、7步正常填入）
 
 ### 6.4 快速股价查询
 1. 解析用户输入：提取个股名称或代码，判断属于哪个市场。
