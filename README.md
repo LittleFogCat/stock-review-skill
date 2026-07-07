@@ -99,6 +99,16 @@ review:
 
 为了兼容旧配置，CLI 仍会接受历史字段 `upload-review`、`baseUrl` 和 `doc-path`，但建议后续统一迁移到上面的新结构。
 
+### Webhook 配置（可选）
+
+如需将复盘结果同步推送到自有后端 / Discord / Slack 等 Webhook 接收端，可在 `config.yml` 中启用 `review.upload.webhook` 子节点。**已知约束**：v1 仅完成「字段 + CLI 持久化」，实际推送触发逻辑留待 v2 落地（详细说明见 [`references/review_api.md`](./references/review_api.md) 的「Webhook 推送」章节）。
+
+```text
+python scripts/stock_review_cli.py set-webhook-url https://your-host/api/hook
+python scripts/stock_review_cli.py set-webhook-secret
+python scripts/stock_review_cli.py show-webhook
+```
+
 ## 使用场景
 
 适用于以下请求：

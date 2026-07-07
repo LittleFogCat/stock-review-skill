@@ -5,6 +5,7 @@ import getpass
 import json
 import os
 import platform
+import shutil
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,6 +19,8 @@ API_URL_ENV_KEY = "STOCK_REVIEW_API_URL"
 UPLOAD_ENABLED_ENV_KEY = "STOCK_REVIEW_UPLOAD_ENABLED"
 TIMEOUT_ENV_KEY = "STOCK_REVIEW_API_TIMEOUT_SECONDS"
 CONFIG_PATH_ENV_KEY = "STOCK_REVIEW_CONFIG_FILE"
+WEBHOOK_URL_ENV_KEY = "STOCK_REVIEW_WEBHOOK_URL"
+WEBHOOK_SECRET_ENV_KEY = "STOCK_REVIEW_WEBHOOK_SECRET"
 DEFAULT_CONFIG_FILE = "config.yml"
 DEFAULT_CONFIG_EXAMPLE_FILE = "config.example.yml"
 DEFAULT_TIMEOUT_SECONDS = 30
@@ -41,6 +44,12 @@ DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
             "apiUrl": API_URL,
             "apiKey": "",
             "timeoutSeconds": DEFAULT_TIMEOUT_SECONDS,
+            "webhook": {
+                "enabled": False,
+                "url": "",
+                "secret": "",
+                "maxRetries": 3,
+            },
         },
         "local": {
             "doc": {
@@ -123,6 +132,48 @@ def build_parser() -> argparse.ArgumentParser:
     )
     report_parser.set_defaults(handler=handle_report)
 
+    set_webhook_url_parser = subparsers.add_parser(
+        "set-webhook-url",
+        help="Persist the webhook URL into config.yml (review.upload.webhook.url).",
+    )
+    set_webhook_url_parser.add_argument(
+        "url",
+        nargs="?",
+        default=None,
+        help="Webhook URL. If omitted, the script reads from $%s or prompts in a TTY." % WEBHOOK_URL_ENV_KEY,
+    )
+    set_webhook_url_parser.add_argument(
+        "--config-file",
+        help=f"Path to the runtime config file. Defaults to {CONFIG_PATH_ENV_KEY} or ./{DEFAULT_CONFIG_FILE}.",
+    )
+    set_webhook_url_parser.set_defaults(handler=handle_set_webhook_url)
+
+    set_webhook_secret_parser = subparsers.add_parser(
+        "set-webhook-secret",
+        help="Persist the webhook signing secret into config.yml (review.upload.webhook.secret).",
+    )
+    set_webhook_secret_parser.add_argument(
+        "secret",
+        nargs="?",
+        default=None,
+        help="Webhook secret. If omitted, the script reads from $%s or prompts (getpass) in a TTY." % WEBHOOK_SECRET_ENV_KEY,
+    )
+    set_webhook_secret_parser.add_argument(
+        "--config-file",
+        help=f"Path to the runtime config file. Defaults to {CONFIG_PATH_ENV_KEY} or ./{DEFAULT_CONFIG_FILE}.",
+    )
+    set_webhook_secret_parser.set_defaults(handler=handle_set_webhook_secret)
+
+    show_webhook_parser = subparsers.add_parser(
+        "show-webhook",
+        help="Print the effective webhook configuration (URL, secret, enabled, maxRetries) with provenance.",
+    )
+    show_webhook_parser.add_argument(
+        "--config-file",
+        help=f"Path to the runtime config file. Defaults to {CONFIG_PATH_ENV_KEY} or ./{DEFAULT_CONFIG_FILE}.",
+    )
+    show_webhook_parser.set_defaults(handler=handle_show_webhook)
+
     return parser
 
 
@@ -131,6 +182,90 @@ def handle_set_api_key(args: argparse.Namespace) -> int:
     persist_api_key(api_key)
     print(f"API key has been persisted as {ENV_KEY}.")
     print("Open a new terminal session if your current shell does not pick up user-level environment changes automatically.")
+    return 0
+
+
+def handle_set_webhook_url(args: argparse.Namespace) -> int:
+    config_path = resolve_config_path(args.config_file)
+    env_value = read_env_string(WEBHOOK_URL_ENV_KEY)
+    url = read_webhook_url_input(args.url, env_value)
+
+    if config_path is None:
+        raise FileNotFoundError(
+            f"No config file found. Copy {DEFAULT_CONFIG_EXAMPLE_FILE} to {DEFAULT_CONFIG_FILE} first."
+        )
+
+    update_runtime_config_setting(
+        config_path,
+        ("review", "upload", "webhook", "url"),
+        url,
+    )
+    print(f"Webhook URL persisted to {config_path} (review.upload.webhook.url).")
+    return 0
+
+
+def handle_set_webhook_secret(args: argparse.Namespace) -> int:
+    config_path = resolve_config_path(args.config_file)
+    env_value = read_env_string(WEBHOOK_SECRET_ENV_KEY)
+    secret = read_webhook_secret_input(args.secret, env_value)
+
+    if config_path is None:
+        raise FileNotFoundError(
+            f"No config file found. Copy {DEFAULT_CONFIG_EXAMPLE_FILE} to {DEFAULT_CONFIG_FILE} first."
+        )
+
+    update_runtime_config_setting(
+        config_path,
+        ("review", "upload", "webhook", "secret"),
+        secret,
+    )
+    print(f"Webhook secret persisted to {config_path} (review.upload.webhook.secret).")
+    return 0
+
+
+def handle_show_webhook(args: argparse.Namespace) -> int:
+    config_path = resolve_config_path(args.config_file)
+    config = load_runtime_config(config_path) if config_path else {}
+
+    webhook_node = as_mapping(as_mapping(as_mapping(config.get("review")).get("upload")).get("webhook"))
+
+    enabled = resolve_bool_setting(
+        cli_value=None,
+        env_key=None,
+        config_value=webhook_node.get("enabled"),
+        default=False,
+        setting_label="review.upload.webhook.enabled",
+    )
+    url = resolve_string_setting(
+        cli_value=None,
+        env_key=None,
+        config_value=webhook_node.get("url"),
+        default="",
+    )
+    secret = resolve_string_setting(
+        cli_value=None,
+        env_key=None,
+        config_value=webhook_node.get("secret"),
+        default="",
+    )
+    max_retries = resolve_int_setting(
+        cli_value=None,
+        env_key=None,
+        config_value=webhook_node.get("maxRetries"),
+        default=3,
+        minimum=1,
+        setting_label="review.upload.webhook.maxRetries",
+    )
+
+    print("Effective webhook configuration:")
+    print(f"  enabled    : {enabled}")
+    print(f"  url        : {url or '(empty)'}")
+    print(f"  secret     : {'(set)' if secret else '(empty)'}")
+    print(f"  maxRetries : {max_retries}")
+    if config_path:
+        print(f"\nSource: {config_path}")
+    else:
+        print("\nSource: <no config file; defaults in effect>")
     return 0
 
 
@@ -484,6 +619,147 @@ def merge_nested_dicts(base: dict[str, Any], overrides: dict[str, Any]) -> dict[
             merged[key] = value
 
     return merged
+
+
+def _quote_yaml_scalar(value: Any) -> str:
+    """把 scalar 序列化为 yaml 字面：bool/int 直接转 str；字符串按需加双引号。
+
+    任何包含 `:`/`#`、前导空格、或者与 stripped 不一致的字符串一律加双引号；
+    这保证 parse_simple_yaml 反向读回时不会解释错。
+    """
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, str):
+        if value == "":
+            return '""'
+        stripped = value.strip()
+        needs_quote = (
+            any(ch in value for ch in (":", "#"))
+            or stripped != value
+            or value != value.strip()
+        )
+        if needs_quote:
+            escaped = value.replace("\\", "\\\\").replace('"', '\\"')
+            return f'"{escaped}"'
+        return value
+    raise TypeError(
+        f"Unsupported scalar type for yaml serialization: {type(value).__name__}"
+    )
+
+
+def _dump_simple_yaml(data: dict[str, Any], indent: int = 0) -> str:
+    """递归将 dict 序列化为 yaml 文本（保留与现有 parse_simple_yaml 兼容的扁平 key:value 风格）。
+
+    设计约束来自 parse_simple_yaml 的支持范围：
+    - 不输出 inline list / inline dict（保留 4 空格缩进的嵌套 dict）
+    - 不输出 Tab 缩进
+    - 不保留注释（丢注释是已知限制，README 标注）
+    - key 稳定排序（保证写回结果可重现、便于 diff）
+    """
+    pad = " " * indent
+    lines: list[str] = []
+    for key in sorted(data.keys()):
+        value = data[key]
+        prefix = f"{pad}{key}:"
+        if isinstance(value, dict):
+            lines.append(prefix)
+            lines.append(_dump_simple_yaml(value, indent + 2))
+        else:
+            lines.append(f"{prefix} {_quote_yaml_scalar(value)}")
+    return "\n".join(lines) + ("\n" if lines else "")
+
+
+def update_runtime_config_setting(
+    config_path: Path,
+    dotted_key: tuple[str, ...],
+    value: Any,
+) -> None:
+    """修改 config.yml 指定 dotted key 路径的字段并写回。
+
+    流程：备份 config.yml.bak → merge_nested_dicts(DEFAULT_RUNTIME_CONFIG, 当前 yml)
+    → 按 dotted_key 逐层下钻赋值 → 写回 → round-trip 校验（再 load 一遍确认可以读回）。
+    """
+    if not config_path.exists():
+        raise FileNotFoundError(
+            f"Config file does not exist: {config_path}. "
+            f"Copy {DEFAULT_CONFIG_EXAMPLE_FILE} to {config_path.name} first."
+        )
+
+    backup_path = config_path.with_suffix(config_path.suffix + ".bak")
+    shutil.copy2(config_path, backup_path)
+
+    parsed = load_yaml_config_file(config_path)
+    # 顺序必须是 DEFAULT 作 base、parsed 作 overrides——保证用户写入的字段覆盖默认值，
+    # 而 DEFAULT_RUNTIME_CONFIG 仅作为「未知字段」的兜底补充。
+    # 写反顺序（parsed 作 base）会导致默认值把用户字段擦空。
+    merged = merge_nested_dicts(DEFAULT_RUNTIME_CONFIG, parsed)
+
+    cursor: Any = merged
+    for segment in dotted_key[:-1]:
+        if not isinstance(cursor, dict):
+            raise ValueError(
+                f"Cannot descend into non-dict at {'.'.join(dotted_key)}: "
+                f"segment '{segment}' is {type(cursor).__name__}"
+            )
+        cursor = cursor.setdefault(segment, {})
+    if not isinstance(cursor, dict):
+        raise ValueError(
+            f"Cannot assign into non-dict parent at {'.'.join(dotted_key[:-1])}"
+        )
+    cursor[dotted_key[-1]] = value
+
+    config_path.parent.mkdir(parents=True, exist_ok=True)
+    config_path.write_text(_dump_simple_yaml(merged), encoding="utf-8")
+
+    verify = load_yaml_config_file(config_path)
+    verify_cursor: Any = verify
+    for segment in dotted_key[:-1]:
+        verify_cursor = verify_cursor[segment]
+    if verify_cursor[dotted_key[-1]] != value:
+        raise ValueError(
+            f"Round-trip verification failed for {'.'.join(dotted_key)}. "
+            f"Restoring from {backup_path}."
+        )
+
+
+def read_webhook_url_input(cli_value: str | None, env_value: str | None) -> str:
+    """读取 webhook URL（优先级：--url 参数 > $STOCK_REVIEW_WEBHOOK_URL 环境变量 > TTY stdin）。"""
+    if cli_value:
+        url = cli_value.strip()
+    elif env_value:
+        url = env_value.strip()
+    else:
+        if not sys.stdin.isatty():
+            raise ValueError(
+                "No webhook URL was provided. Re-run with --url, set STOCK_REVIEW_WEBHOOK_URL, "
+                "or run in an interactive terminal."
+            )
+        url = input("Enter webhook URL: ").strip()
+
+    if not url:
+        raise ValueError("Webhook URL cannot be empty.")
+    return url
+
+
+def read_webhook_secret_input(cli_value: str | None, env_value: str | None) -> str:
+    """读取 webhook secret（getpass 强制静默输入，不打印到 stdout）。"""
+    if cli_value:
+        secret = cli_value
+    elif env_value:
+        secret = env_value
+    else:
+        if not sys.stdin.isatty():
+            raise ValueError(
+                "No webhook secret was provided. Re-run with --secret, "
+                "set STOCK_REVIEW_WEBHOOK_SECRET, or run in an interactive terminal."
+            )
+        secret = getpass.getpass("Enter webhook secret: ").strip()
+
+    if not secret:
+        raise ValueError("Webhook secret cannot be empty.")
+    return secret
 
 
 def as_mapping(value: Any) -> dict[str, Any]:

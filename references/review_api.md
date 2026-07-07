@@ -40,6 +40,77 @@
 
 ---
 
+## Webhook 推送（v1：配置预留）
+
+> **状态**：v1 已支持 `config.yml` 字段 + `set-webhook-url` / `set-webhook-secret` / `show-webhook` 三个 CLI 子命令。**实际推送触发逻辑在 `report` 完成后尚未实现**——目前 `webhook.enabled` 与 `webhook.url` 字段仅作为配置预留，xiaoniu.tech 主上报流程不受影响。等 v2 落地后，本节会增补接收方签名校验、重试退避、幂等键等内容。
+
+如果你打算把 stock-review-skill 接入**自有后端 / Discord / Slack 等 Webhook 接收端**，先按本节配好字段，等 v2 上线即自动生效。
+
+### 1. 字段说明
+
+`config.yml` 中 `review.upload.webhook` 子节点：
+
+| 字段 | 类型 | 默认 | 说明 |
+|------|------|------|------|
+| `enabled` | bool | `false` | 是否启用 webhook 推送。v1 仅作配置预留；v2 启用后会真正在 `report` 完成后触发 POST |
+| `url` | string | `""` | 接收端 URL（建议 HTTPS）。空 = 不推送 |
+| `secret` | string | `""` | HMAC-SHA256 签名密钥。空 = 不签名（v2 启用后会发出"无签名"警告） |
+| `maxRetries` | int | `3` | 失败重试次数（v2 触发实现后生效）。仅 5xx / 网络错误触发重试，4xx 不重试 |
+
+### 2. CLI 配置流程
+
+```bash
+# 一次性写入 URL（推荐保留 TTY 提示，避免 URL 进 shell history）
+python scripts/stock_review_cli.py set-webhook-url https://your-host/api/hook
+
+# 写入 secret（getpass 安全输入，不回显）
+python scripts/stock_review_cli.py set-webhook-secret
+
+# 启用 webhook（如不写则保持 enabled=false）
+# 注：CLI 没有 enable/disable 子命令，直接手编 config.yml 把 enabled 改 true 即可，
+#     或用 python -c "..." + update_runtime_config_setting 调脚本。
+
+# 验证当前生效的配置
+python scripts/stock_review_cli.py show-webhook
+```
+
+覆盖链：`--url`（命令行参数） > `$STOCK_REVIEW_WEBHOOK_URL`（环境变量） > `config.yml` > DEFAULT_RUNTIME_CONFIG。`--config-file` 可指向任意路径。
+
+### 3. 接收方接入预览（v2 推送启用后）
+
+v2 启用后，每次 `report` 成功后，stock_review_skill 会异步向 `webhook.url` POST 一份**完整的复盘 JSON**，请求头如下：
+
+| 头字段 | 值 | 说明 |
+|--------|----|------|
+| `Content-Type` | `application/json` | JSON 载荷 |
+| `Authorization` | `Bearer <STOCK_REVIEW_API_KEY>` | 复用主 API 的 API Key（v2 阶段） |
+| `X-Stock-Review-Signature` | `sha256=<hex>` | HMAC-SHA256(secret, raw_body) |
+| `X-Stock-Review-Event-Id` | `<uuid>` | 同一份复盘的重发拥有同一 event_id，接收方据此幂等去重 |
+| `X-Stock-Review-Timestamp` | `<unix epoch>` | 防重放窗口由接收方决定（建议 ±5 分钟） |
+
+接收方应答约定：
+
+- 2xx = 接收成功，客户端不再重试
+- 4xx = 永久失败（载荷不合法等），客户端不重试
+- 5xx / 网络错误 = 临时失败，客户端按 `webhook.maxRetries` 触发指数退避重试
+
+### 4. 第三方接入参考实现
+
+```python
+import hashlib
+import hmac
+
+def verify_signature(secret: str, body: bytes, signature_header: str) -> bool:
+    if not signature_header.startswith("sha256="):
+        return False
+    expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+    return hmac.compare_digest(expected, signature_header[len("sha256="):])
+```
+
+注：v2 上线后才能真实收到 POST 请求；v1 阶段该方法只是模板化的占位实现。
+
+---
+
 ## 核对已推送的复盘记录（GET · 诊断用途）
 
 **使用场景**：用户问"复盘都推送到服务器了吗？"或"最近几天复盘推送是否成功？"时，用来无损地列出服务器上所有已上报的复盘记录，与本地 `/usr/local/files/docs/stock/` 目录对比，找出推送缺失的日期。这是排查"本地有文件但服务器没收到"的快速诊断手段。

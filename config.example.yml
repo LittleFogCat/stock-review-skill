@@ -4,6 +4,11 @@ review:
     apiUrl: "https://xiaoniu.tech/api/stock/reviews" # 上传复盘的完整 API 地址
     apiKey: "" # 默认留空；仅在 enabled=true 时需要，优先使用环境变量 STOCK_REVIEW_API_KEY
     timeoutSeconds: 30 # HTTP 请求超时时间（秒）
+    webhook: # Webhook 推送配置（v1: 仅配置预留，推送触发留待 v2 实现）
+      enabled: false # 是否启用 webhook 推送
+      url: "" # 接收端 URL；空=不推送；可通过 `python scripts/stock_review_cli.py set-webhook-url <url>` 写入
+      secret: "" # HMAC-SHA256 签名密钥；空=不签名；可通过 `set-webhook-secret` 写入
+      maxRetries: 3 # 失败重试次数（5xx/网络错误触发）；推送触发实现后生效
   local:
     doc:
       enabled: true # 是否启用本地存储复盘文档
