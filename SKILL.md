@@ -451,6 +451,7 @@ python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声�
 - [看门狗重试脚本模板](./scripts/watchdog_retry_template.py)（cron 模式复盘重试的标准 Python 模板：检查文件 → token 预检 → 数据采集 → 上报）
 - [A 股涨跌停阈值与涨停股统计](./references/a-share-limit-thresholds.md)（按代码前缀区分 10%/20%/30% 涨停、ST 股 ±5% 阈值、精确统计 Python 函数、2026-06-29 实测数据）
 - [当日复盘 Markdown 模板（实战验证版）](./templates/daily-review-template.md)（2026-06-29 cron 复盘实战验证通过的章节结构 + 用户偏好处理方式 + Python 构造骨架）
+- [停用/移除一个功能机制](./references/feature-decommission.md)（主人说「去除所有 X 相关内容」时的端到端清除流程：机制散落在仓库文件/cron prompt/专职 job/运行时目录 5 层，含同名文件误删防护 `review_model.md` 与 cron prompt 删段方法）
 
 ## 8. 备注
 
@@ -515,3 +516,6 @@ final response 推送语义、互斥锁、read_file 行号陷阱、明日观察�
 
 ### 9.13 上报方式陷阱
 Python 上报（`write_file + python3 /tmp/upload.py`）无 shell 变量替换问题，比 curl 更可靠（覆盖 1.8 上报约束第 3 条）；cron 模式推荐 Python。
+
+### 9.14 停用/移除机制陷阱（参考 `references/feature-decommission.md`）
+机制散落在 5 层——仓库文件、仓库内脚本引用、**cron job prompt**、专职 cron job、运行时数据目录。只改仓库 = 只清 1/5，剩下的会让 cron 去调已删除的脚本而静默失败。另：`grep -i model` 会命中 `references/review_model.md`（那是「复盘 JSON 字段表」，不是 ML 模型），**按文件名删除前必须先读内容**。丢弃文件一律 `mv` 到 `/tmp/discarded_<topic>/`，不 `rm`。
