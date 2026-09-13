@@ -69,6 +69,15 @@ cronjob action=create \
 
 **核心原则都是「先查文件，再决定是否重试」**：文件存在且完整 = 任务成功，不做任何重试；文件不存在 = 主任务确实失败，继续执行重试。
 
+**⚠️ 即使 context 中看到截断的输出或 "FAILED" 字样，也必须以本地文件检查结果为准**，不要据此重试。
+
+**⚠️ 陈旧锁陷阱（2026-08-06 实测）**：看门狗的**文件检查必须优先于锁检查**。主任务可能抢到锁后失败（空闲超时/API hang），留下陈旧锁但无文件。此时看门狗看到 `LOCKED` 不应 [SILENT]，而应先查文件——文件缺失=陈旧锁，须执行补救。详见 [watchdog-stale-lock.md](watchdog-stale-lock.md)。
+
+**⚠️ Sina 首页结构化数据（2026-08-06 发现）**：`finance.sina.com.cn/stock/` 的 `browser_console(document.body.innerText)` 包含 TOP10 行业/概念/个股排名（精确涨幅+领涨股），是单次请求最高效的板块数据源。详见 [sina-homepage-structured-data.md](sina-homepage-structured-data.md)。
+
+- `[SILENT]` 回复会静默抑制推送——健康状态下不应打扰用户。
+- 重试时复用上一交易日的本地复盘 JSON（`/usr/local/files/docs/stock/YYYY-MM-DD-A股复盘.json`）获取昨日盘面数据，避免重新拉取 API。
+
 **完整标准流程**（含文件阈值判断、token 预检、数据采集、JSON 验证、API 上报）见下文「[看门狗重试标准流程（2026-06-25 验证）](#看门狗重试标准流程2026-06-25-验证)」。
 
 **手动 vs 自动的唯一区别**：

@@ -134,6 +134,61 @@ for pattern, label in [
 - 同一天可能有多篇 /tob/ 文章（如 8:00 早间 + 16:00 收盘），收盘后应取最后发表的那篇
 - 标题含「收评」字样的是综合收评（综合大盘），标题含「ETF收评」的是 bxjj 路径下的 ETF 视角
 
+**⚠️ 2026-07-31 补充：cron 模式下用 browser_console 替代 Python urllib**：在 cron 模式下 Python `urllib.request` 可能 hang（见 SKILL.md「Python urllib HTTP 请求在 cron 模式下 hang」陷阱），此时改用 browser_navigate + browser_console 扫描首页链接更可靠。
+
+**⚠️ 2026-07-15 重要纠正：browser_console `fetch()` 被安全策略拦截**：上述 browser_console 方案**仅适用于 DOM 检查**（`document.querySelectorAll('a')` 等读取已加载页面内容的操作）。browser_console 中执行 `fetch()` 发起网络请求会被安全策略拦截，报错 `Blocked: sensitive browser JavaScript primitive (network request)`。如需从浏览器环境调东财/腾讯 API，**不可使用 browser_console fetch**，仍需用 Python urllib 或 curl。详见 `references/data-source-status-2026-07-15.md`。
+
+```javascript
+// browser_console expression（在 browser_navigate("https://finance.sina.com.cn/stock/") 之后执行）
+// 用 today 变量代替硬编码日期，方便复用
+(() => {
+  const today = '2026-08-03';  // ← 替换为目标日期
+  const links = Array.from(document.querySelectorAll('a'));
+  const results = [];
+  const paths = ['/tob/', '/jjxw/', '/roll/', '/bxjj/', '/cpbd/', '/snipe/', '/marketresearch/', '/stock/y/'];
+  const keywords = ['收评', '复盘', '涨停', '暴跌', '大跌', '半导体', '科技', '科创', '核电'];
+  for (const a of links) {
+    const href = a.href || '';
+    const text = (a.textContent || '').trim();
+    if (text.length <= 5) continue;
+    // 路径+日期匹配
+    if (paths.some(p => href.includes(p)) && href.includes(today)) {
+      results.push({text: text.substring(0, 80), href: href});
+    }
+    // 关键词匹配（catches articles whose URL doesn't contain the date）
+    else if (keywords.some(kw => text.includes(kw)) && href.includes('finance.sina.com.cn')) {
+      results.push({text: text.substring(0, 80), href: href});
+    }
+  }
+  // 去重
+  const seen = new Set();
+  const unique = results.filter(r => { if (seen.has(r.href)) return false; seen.add(r.href); return true; });
+  return JSON.stringify(unique.slice(0, 40), null, 2);
+})()
+```
+
+**2026-08-03 实测改进**：
+- 新增 `/marketresearch/` 路径（机构观点/策略分析文章）
+- 新增 `/stock/y/` 路径（财经早报）
+- 关键词过滤机制：即使 URL 不含目标日期，标题含 `收评`/`暴跌`/`半导体`/`核电` 等关键词的文章也会被捕获
+- `today` 变量替代硬编码日期，直接改一处即可复用
+- 去重逻辑（同一 href 只出现一次）
+- 返回上限 40 条（原 30 条），覆盖更全
+
+此方法在 2026-07-31 / 2026-08-03 cron 复盘中实测验证：一次扫描返回 30-40 篇当日文章链接，覆盖全部所需数据源。
+
+**提取文章正文（长文章分页）**：`browser_console` 的 `document.body.innerText` 返回的文本可能很长（收评+操盘必读动辄 8000-15000 字符）。用 `substring()` 分段提取：
+
+```javascript
+// 第一段（0-15000字符）
+(document.querySelector('#artibody') || document.querySelector('.article-content-left') || document.body).innerText.substring(0, 15000)
+
+// 第二段（5000-12000字符，与第一段有重叠以便衔接）
+(document.querySelector('#artibody') || document.body).innerText.substring(5000, 12000)
+```
+
+选择器优先级：`#artibody` > `.article-content-left` > `document.body`。2026-08-03 实测：`#artibody` 选择器在 /tob/ 和 /cpbd/ 文章上均有效，返回完整正文。
+
 ### Step 2：提取文章正文
 
 ```python
@@ -228,9 +283,11 @@ if count_match:
 
 **症状**：`/tob/` 文章页面中既无 `<div id="artibody">`，`<div class="article">` 又返回空内容，且 `<p>` 标签提取仅返回专题提示语（如「专题：A股下半年掘金「结构牛」」），不包含正文。提取内容 `< 100 字符`。
 
-**根因**：Sina `/tob/` 页面的 HTML 结构与 `/stock/bxjj/` 和 `/stock/cpbd/` 不同——正文通过 JavaScript 动态加载，SSR `<p>` 标签仅包含头部专题栏和导航，不包含实际收评内容。
+**根因**：Sina `/tob/` 页面的 HTML 结构与 `/stock/bxjj/` 和 `/stock/cpbd/` 不同--正文通过 JavaScript 动态加载，SSR `<p>` 标签仅包含头部专题栏和导航，不包含实际收评内容。
 
-**应对 — 多层提取方案**（按优先级）：
+**⚠️ 2026-07-31 重要补充：browser_navigate 完全绕过此问题**：当使用 `browser_navigate`（而非 Python urllib/curl）访问 `/tob/` 文章时，浏览器引擎执行 JS 渲染，完整正文（含板块描述、龙头个股名称+涨跌幅、消息面分类、机构观点）直接出现在 accessibility tree snapshot 中。**2026-07-31 实测**：browser_navigate 访问 `finance.sina.com.cn/tob/2026-07-31/doc-inikstfm1244940.shtml` 后，snapshot 直接包含完整收评正文（板块、个股涨跌幅、消息面），无需任何 fallback。**结论：在 cron 模式下优先用 browser_navigate + browser_snapshot/browser_console 采集 /tob/ 文章，Risk 1b 仅影响 Python urllib/curl 路径。**
+
+**应对 - 多层提取方案**（按优先级）：
 
 Level 1：`<meta name="description">` 提取（快速回退）：
 ```python

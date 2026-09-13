@@ -1,6 +1,6 @@
 # Sina 财经早报/操盘必读文章参考
 
-早盘快报模式下，Sina 财经的两类早间专栏文章是获取消息面、隔夜美股、今日关注线索的最佳单一数据来源。
+早盘快报模式下，Sina 财经的两类早间专栏文章是获取消息面、隔夜美股的最佳单一数据来源。
 
 ---
 
@@ -113,6 +113,9 @@ LME期铜下跌2%，报13371美元/吨...
 ## 已知风险
 
 1. **文章 URL 可能变化**：文档 ID（`doc-inienicy1500098.shtml`）每天不同，需从首页动态提取。
+   - **✅ 最稳方法（2026-09-11 实测）**：直接 `browser_navigate("http://finance.sina.com.cn/stock/cpbd/")`（无日期路径的**裸列表 URL**），新浪服务端**自动 302 重定向到当日文章的完整 URL**——从 browser_navigate 返回的 `url` 字段直接拿到当日文章地址（实测返回 `https://finance.sina.com.cn/stock/cpbd/2026-09-11/doc-inirkywi5440798.shtml`），标题和正文一次到位。
+   - **❌ 不要猜 doc-* slug**：凭记忆拼接 `doc-*.shtml` 会返回 404「页面没有找到」（2026-09-11 实测猜测 `doc-inirmvzz2337807.shtml` 404）。`/tob/`、`/jjxw/` 等路径同理，优先浏览器导航到栏目观察重定向，或从首页 `browser_console` 提取含路径关键词的 `<a>` href。
+   - 备选：从 Sina 首页 `browser_console` 用 `document.querySelectorAll('a')` 过滤 href 含 `/cpbd/` 的链接，「操盘必读」入口即指向当日文章。
 2. **首页链接可能被新闻客户端链接覆盖**：搜索时可能只找到 `https://finance.sina.com.cn/doc/...` 格式的链接，需确认是目标栏目的文章。
 3. **SSL 证书问题**：Sina 使用标准 HTTPS，无需特殊处理。
 4. **内容中可能包含 VIP 课程推广**：`VIP课程推荐`、`百位牛人在线解读` 等非新闻内容，应在处理后过滤。
