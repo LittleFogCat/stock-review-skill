@@ -5,10 +5,10 @@
 **前置条件**：
 
 - 本节仅在 `config.yml` 中的 `review.upload.enabled=true`，或用户通过命令行/环境变量显式启用了上传时适用；若未启用上传，可跳过本 API。
-- 调用该接口前，必须先向用户索取 apiKey。
-- 收到 apiKey 后，应先运行 `python ./scripts/stock_review_cli.py set-api-key`，将其持久化为本地环境变量 `STOCK_REVIEW_API_KEY`。
-- 本文中的 `apiKey` 即 Bearer Token；`token` 与 `STOCK_REVIEW_API_KEY` 表示同一份接口凭证。
-- 若已启用上传但未配置 `STOCK_REVIEW_API_KEY`，则上报流程不得继续。
+- 目标 URL 与 Token 由 `config.yml` 中的 `review.upload.webhook.url` / `review.upload.webhook.token` 提供（v2 起的字段约定）。旧的 `review.upload.apiUrl` / `review.upload.apiKey` 与 `$STOCK_REVIEW_API_KEY` 仍能读取（兼容路径，详见 [WebHook 推送章节的迁移指引](#迁移指引-apiUrl--apiKey--webhookurl--webhooktoken)）。
+- 调用该接口前，必须先拿到目标的 Bearer Token。建议通过 `python ./scripts/stock_review_cli.py set-webhook-token <token>` 写入 `config.yml`；旧命令 `set-api-key` 仍能跑（写环境变量 + 同步写 `webhook.token`），但已 deprecation。
+- 本文中的 `token` / `apiKey` / `STOCK_REVIEW_API_KEY` 指代同一份接口凭证。
+- 若已启用上传但未配置 Token，则上报流程不得继续。
 - 上报请求应通过 `python ./scripts/stock_review_cli.py report --json-file <path-to-review-json>` 实际执行，而不是只输出接口描述。
 - 对本 skill 而言，只有在启用上传时，上报才是完成条件；若未启用上传，可仅生成本地 markdown 与 JSON。
 
@@ -40,11 +40,13 @@
 
 ---
 
-## Webhook 推送（v1：配置预留）
+## Webhook 推送（主上报目标 + 推送配置容器）
 
-> **状态**：v1 已支持 `config.yml` 字段 + `set-webhook-url` / `set-webhook-secret` / `show-webhook` 三个 CLI 子命令。**实际推送触发逻辑在 `report` 完成后尚未实现**——目前 `webhook.enabled` 与 `webhook.url` 字段仅作为配置预留，xiaoniu.tech 主上报流程不受影响。等 v2 落地后，本节会增补接收方签名校验、重试退避、幂等键等内容。
+> **状态**：v2 起，`review.upload.webhook` 节点同时承担**主上报目标配置**（`url` / `token`）与**推送配置预留**（`secret` / `maxRetries` / `enabled`）。**推送触发逻辑尚未实现**——`webhook.secret` 与 `webhook.maxRetries` 字段保留为 v2 推送触发实现后启用，与主上报功能互不影响。
 
-如果你打算把 stock-review-skill 接入**自有后端 / Discord / Slack 等 Webhook 接收端**，先按本节配好字段，等 v2 上线即自动生效。
+如果你想：
+- **修改主上报目标 URL / Token**：直接编辑 `webhook.url` / `webhook.token`，或跑 CLI `set-webhook-url` / `set-webhook-token`
+- **接入自有接收端做 v2 推送**：先按本节配好 `webhook.secret` / `webhook.enabled`，等 v2 上线即自动生效
 
 ### 1. 字段说明
 
@@ -52,23 +54,27 @@
 
 | 字段 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `enabled` | bool | `false` | 是否启用 webhook 推送。v1 仅作配置预留；v2 启用后会真正在 `report` 完成后触发 POST |
-| `url` | string | `""` | 接收端 URL（建议 HTTPS）。空 = 不推送 |
-| `secret` | string | `""` | HMAC-SHA256 签名密钥。空 = 不签名（v2 启用后会发出"无签名"警告） |
-| `maxRetries` | int | `3` | 失败重试次数（v2 触发实现后生效）。仅 5xx / 网络错误触发重试，4xx 不重试 |
+| `enabled` | bool | `false` | 是否启用上传。v2 起同时控制「主上报」与「v2+ 推送」两个开关（暂未拆） |
+| `url` | string | `https://xiaoniu.tech/api/stock/reviews` | **主上报目标 URL**（v2 起替代 `upload.apiUrl`）。如果改成自有后端，v2+ 推送也会用同一个地址 |
+| `token` | string | `""` | **主上报 Bearer Token**（v2 起替代 `upload.apiKey`）。空 = 必报缺凭证 |
+| `secret` | string | `""` | HMAC-SHA256 签名密钥（v2 推送触发实现后启用）。与 `token` 不同——`token` 用于主上报 Bearer 鉴权，`secret` 用于 v2 推送签名，两者语义独立 |
+| `maxRetries` | int | `3` | v2+ 推送失败重试次数。仅 5xx / 网络错误触发重试，4xx 不重试 |
 
 ### 2. CLI 配置流程
 
 ```bash
-# 一次性写入 URL（推荐保留 TTY 提示，避免 URL 进 shell history）
+# 写入主上报目标 URL（推荐保留 TTY 提示，避免 URL 进 shell history）
 python scripts/stock_review_cli.py set-webhook-url https://your-host/api/hook
 
-# 写入 secret（getpass 安全输入，不回显）
-python scripts/stock_review_cli.py set-webhook-secret
+# 写入主上报 Bearer Token（getpass 安全输入，不回显）
+python scripts/stock_review_cli.py set-webhook-token mytoken
 
-# 启用 webhook（如不写则保持 enabled=false）
-# 注：CLI 没有 enable/disable 子命令，直接手编 config.yml 把 enabled 改 true 即可，
-#     或用 python -c "..." + update_runtime_config_setting 调脚本。
+# 写入 v2+ 推送 HMAC 签名密钥（getpass；与 token 区分使用）
+python scripts/stock_review_cli.py set-webhook-secret mysecret
+
+# 启用上传（默认 disabled）
+# 注：CLI 没有 enable/disable 子命令，直接手编 config.yml 把 enabled 改 true 即可
+#     （或用 python -c "..." + update_runtime_config_setting 调脚本）。
 
 # 验证当前生效的配置
 python scripts/stock_review_cli.py show-webhook
@@ -108,6 +114,51 @@ def verify_signature(secret: str, body: bytes, signature_header: str) -> bool:
 ```
 
 注：v2 上线后才能真实收到 POST 请求；v1 阶段该方法只是模板化的占位实现。
+
+### 5. 迁移指引：`apiUrl` / `apiKey` → `webhook.url` / `webhook.token`
+
+v2 把主上报目标配置搬到 `webhook` 子节点下，老字段保留为**兼容读取路径**——也就是说，目前同时写老字段或新字段都能跑。但推荐尽快迁移到新字段，原因：
+- 老字段的兼容读取会在未来某个版本移除（届时另行通告）
+- 文档、示例、SDK 默认按新字段组织
+- `show-webhook` 等诊断命令只显示新字段
+
+**最小迁移**（用 CLI 一键搞定）：
+
+```bash
+# 1. 写入主上报 URL 到新字段（保留老 upload.apiUrl 不动即可，新字段优先）
+python scripts/stock_review_cli.py set-webhook-url https://xiaoniu.tech/api/stock/reviews
+
+# 2. 写入主上报 Token 到新字段
+python scripts/stock_review_cli.py set-webhook-token $yourtoken
+
+# 3. 验证（输出应包含你刚写入的 url 与 token）
+python scripts/stock_review_cli.py show-webhook
+
+# 4. （可选）从 config.yml 删除老字段，让 yaml 更干净
+#    python scripts/clean_legacy_upload_fields.py  # 本脚本尚未提供；可手动 grep + 删
+```
+
+**老命令 deprecation 行为**：
+
+```bash
+# set-api-key 仍能跑，会同时写 ENV_KEY + webhook.token（一次性双写）
+python scripts/stock_review_cli.py set-api-key $yourtoken
+# stderr: WARNING: 'set-api-key' is deprecated; prefer 'set-webhook-token' to ...
+# stdout: API key has been persisted as STOCK_REVIEW_API_KEY.
+# stdout: API key also mirrored to .../config.yml (review.upload.webhook.token).
+```
+
+**保留兼容的字段对照表**（运行时 read 优先级）：
+
+| 资源 | 优先级（高 → 低） |
+|------|-------------------|
+| 主上报 URL | `--api-url` > `$STOCK_REVIEW_API_URL` > `webhook.url` > `upload.apiUrl`（兼容）> baseUrl 推导 > `https://xiaoniu.tech/api/stock/reviews` 默认 |
+| 主上报 Token | `--api-key` > `$STOCK_REVIEW_API_KEY` > `webhook.token` > `upload.apiKey`（兼容） |
+
+**`webhook.secret` 与 `webhook.token` 区别**：
+- `token` = Bearer Token，用在主上报 POST 的 `Authorization: Bearer <token>` 头
+- `secret` = HMAC 共享密钥，v2+ 推送触发后用在 `X-Stock-Review-Signature: sha256=<hmac>` 头
+- 两个字段语义独立，**不要混用**——即便主上报目标是同一个 host，token 和 secret 也得分别配置
 
 ---
 

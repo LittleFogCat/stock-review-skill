@@ -20,6 +20,7 @@ UPLOAD_ENABLED_ENV_KEY = "STOCK_REVIEW_UPLOAD_ENABLED"
 TIMEOUT_ENV_KEY = "STOCK_REVIEW_API_TIMEOUT_SECONDS"
 CONFIG_PATH_ENV_KEY = "STOCK_REVIEW_CONFIG_FILE"
 WEBHOOK_URL_ENV_KEY = "STOCK_REVIEW_WEBHOOK_URL"
+WEBHOOK_TOKEN_ENV_KEY = "STOCK_REVIEW_WEBHOOK_TOKEN"
 WEBHOOK_SECRET_ENV_KEY = "STOCK_REVIEW_WEBHOOK_SECRET"
 DEFAULT_CONFIG_FILE = "config.yml"
 DEFAULT_CONFIG_EXAMPLE_FILE = "config.example.yml"
@@ -41,14 +42,17 @@ DEFAULT_RUNTIME_CONFIG: dict[str, Any] = {
     "review": {
         "upload": {
             "enabled": False,
+            # apiUrl 字段作为「兼容老用户 + 默认值兜底」保留——所有用户都能从这里读到 API URL。
+            # v2+ 推荐改用 webhook.url，但保留 apiUrl 让"老配置不写 webhook 也能跑 xiaoniu 默认"。
             "apiUrl": API_URL,
-            "apiKey": "",
+            # apiKey 字段不复存在（v2+ Bearer Token 仅走 webhook.token / ENV_KEY）
             "timeoutSeconds": DEFAULT_TIMEOUT_SECONDS,
             "webhook": {
                 "enabled": False,
-                "url": "",
-                "secret": "",
-                "maxRetries": 3,
+                "url": "",                # ← 关键：默认 = ""（不要注入 xiaoniu），否则会遮盖老用户的 apiUrl
+                "token": "",              # 主上报 Bearer Token（新字段名，替代 upload.apiKey）
+                "secret": "",             # HMAC-SHA256 签名密钥（v2 推送触发实现后启用）
+                "maxRetries": 3,          # v2 推送触发实现后生效
             },
         },
         "local": {
@@ -164,6 +168,22 @@ def build_parser() -> argparse.ArgumentParser:
     )
     set_webhook_secret_parser.set_defaults(handler=handle_set_webhook_secret)
 
+    set_webhook_token_parser = subparsers.add_parser(
+        "set-webhook-token",
+        help="Persist the main API Bearer token into config.yml (review.upload.webhook.token).",
+    )
+    set_webhook_token_parser.add_argument(
+        "token",
+        nargs="?",
+        default=None,
+        help="Main API token. If omitted, the script reads from $%s or prompts (getpass) in a TTY." % WEBHOOK_TOKEN_ENV_KEY,
+    )
+    set_webhook_token_parser.add_argument(
+        "--config-file",
+        help=f"Path to the runtime config file. Defaults to {CONFIG_PATH_ENV_KEY} or ./{DEFAULT_CONFIG_FILE}.",
+    )
+    set_webhook_token_parser.set_defaults(handler=handle_set_webhook_token)
+
     show_webhook_parser = subparsers.add_parser(
         "show-webhook",
         help="Print the effective webhook configuration (URL, secret, enabled, maxRetries) with provenance.",
@@ -178,10 +198,28 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def handle_set_api_key(args: argparse.Namespace) -> int:
+    print(
+        "WARNING: 'set-api-key' is deprecated; prefer 'set-webhook-token' to write the same key "
+        "into review.upload.webhook.token in config.yml. This command still works and additionally "
+        "mirrors the key to webhook.token for backward compatibility.",
+        file=sys.stderr,
+    )
     api_key = read_api_key_input(args.api_key)
     persist_api_key(api_key)
     print(f"API key has been persisted as {ENV_KEY}.")
     print("Open a new terminal session if your current shell does not pick up user-level environment changes automatically.")
+
+    config_path = resolve_config_path(args.config_file)
+    if config_path is not None:
+        try:
+            update_runtime_config_setting(
+                config_path,
+                ("review", "upload", "webhook", "token"),
+                api_key,
+            )
+            print(f"API key also mirrored to {config_path} (review.upload.webhook.token).")
+        except Exception as exc:
+            print(f"Note: could not mirror key to {config_path}: {exc}", file=sys.stderr)
     return 0
 
 
@@ -223,6 +261,25 @@ def handle_set_webhook_secret(args: argparse.Namespace) -> int:
     return 0
 
 
+def handle_set_webhook_token(args: argparse.Namespace) -> int:
+    config_path = resolve_config_path(args.config_file)
+    env_value = read_env_string(WEBHOOK_TOKEN_ENV_KEY)
+    token = read_webhook_token_input(args.token, env_value)
+
+    if config_path is None:
+        raise FileNotFoundError(
+            f"No config file found. Copy {DEFAULT_CONFIG_EXAMPLE_FILE} to {DEFAULT_CONFIG_FILE} first."
+        )
+
+    update_runtime_config_setting(
+        config_path,
+        ("review", "upload", "webhook", "token"),
+        token,
+    )
+    print(f"Webhook token persisted to {config_path} (review.upload.webhook.token).")
+    return 0
+
+
 def handle_show_webhook(args: argparse.Namespace) -> int:
     config_path = resolve_config_path(args.config_file)
     config = load_runtime_config(config_path) if config_path else {}
@@ -240,6 +297,12 @@ def handle_show_webhook(args: argparse.Namespace) -> int:
         cli_value=None,
         env_key=None,
         config_value=webhook_node.get("url"),
+        default="",
+    )
+    token = resolve_string_setting(
+        cli_value=None,
+        env_key=None,
+        config_value=webhook_node.get("token"),
         default="",
     )
     secret = resolve_string_setting(
@@ -260,6 +323,7 @@ def handle_show_webhook(args: argparse.Namespace) -> int:
     print("Effective webhook configuration:")
     print(f"  enabled    : {enabled}")
     print(f"  url        : {url or '(empty)'}")
+    print(f"  token      : {'(set)' if token else '(empty)'}")
     print(f"  secret     : {'(set)' if secret else '(empty)'}")
     print(f"  maxRetries : {max_retries}")
     if config_path:
@@ -402,21 +466,33 @@ def resolve_report_settings(args: argparse.Namespace) -> ReportSettings:
         default=False,
         setting_label="review.upload.enabled",
     )
+
+    webhook_node = as_mapping(as_mapping(as_mapping(config.get("review")).get("upload")).get("webhook"))
+
+    # URL：CLI > env > webhook.url（新）> upload.apiUrl（兼容回退）> baseUrl 推导（normalize_runtime_config）> API_URL 默认
     api_url = resolve_string_setting(
         cli_value=args.api_url,
         env_key=API_URL_ENV_KEY,
-        config_value=get_review_upload_config_value(config, "apiUrl"),
+        config_value=(
+            normalize_optional_string(webhook_node.get("url"))
+            or get_review_upload_config_value(config, "apiUrl")
+        ),
         default=API_URL,
     )
     api_key = None
     if upload_enabled:
+        # Token：CLI > $ENV_KEY > webhook.token（新）> upload.apiKey（兼容回退）
         api_key = resolve_required_string_setting(
             cli_value=args.api_key,
             env_key=ENV_KEY,
-            config_value=get_review_upload_config_value(config, "apiKey"),
+            config_value=(
+                normalize_optional_string(webhook_node.get("token"))
+                or get_review_upload_config_value(config, "apiKey")
+            ),
             error_message=(
                 f"{ENV_KEY} is not configured. Upload is enabled, so provide --api-key, set the environment variable, "
-                f"or configure review.upload.apiKey in {config_path or DEFAULT_CONFIG_FILE}."
+                f"configure review.upload.webhook.token (or the legacy review.upload.apiKey) in "
+                f"{config_path or DEFAULT_CONFIG_FILE}."
             ),
         )
     timeout_seconds = resolve_int_setting(
@@ -760,6 +836,25 @@ def read_webhook_secret_input(cli_value: str | None, env_value: str | None) -> s
     if not secret:
         raise ValueError("Webhook secret cannot be empty.")
     return secret
+
+
+def read_webhook_token_input(cli_value: str | None, env_value: str | None) -> str:
+    """读取主上报 Bearer Token（getpass 强制静默输入，与 secret 路径对称）。"""
+    if cli_value:
+        token = cli_value
+    elif env_value:
+        token = env_value
+    else:
+        if not sys.stdin.isatty():
+            raise ValueError(
+                "No webhook token was provided. Re-run with --token, "
+                f"set {WEBHOOK_TOKEN_ENV_KEY}, or run in an interactive terminal."
+            )
+        token = getpass.getpass("Enter webhook token (main API Bearer): ").strip()
+
+    if not token:
+        raise ValueError("Webhook token cannot be empty.")
+    return token
 
 
 def as_mapping(value: Any) -> dict[str, Any]:

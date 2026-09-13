@@ -122,7 +122,7 @@ cronjob action=update job_id=<id> model='{"model":"deepseek-v4-flash","provider"
 
 **修复流程**：
 1. 用户提供新 token（`xntk_` 前缀）
-2. 同步更新两处：`~/.profile`（`export STOCK_REVIEW_API_KEY=...`）和 `config.yml`（`review.upload.apiKey: "..."`）
+2. 同步更新两处：`~/.profile`（`export STOCK_REVIEW_API_KEY=...`，兼容旧路径）与 `config.yml`（v2 起改用 `review.upload.webhook.token: "..."`，旧字段 `review.upload.apiKey` 仍兼容读取）。推荐跑 `python scripts/stock_review_cli.py set-webhook-token <新token>` 一键迁移
 3. **重要**：`~/.profile` 是 Hermes 受保护凭据文件，`patch` 工具会拒绝编辑（`Write denied: protected system/credential file`），必须用 `terminal` + Python/sed 更新
 4. 用最小 payload 预检：`{"date":"YYYY-MM-DD","content":"ping"}` → HTTP 200 + code 400 = token 有效（格式错误是好信号！表示鉴权已通过）
 5. 确认 token 有效后再跑完整复盘流程
@@ -413,7 +413,7 @@ stock-review-skill 的"推送/上报"体系有两个完全独立的目的地：
 
 | 体系 | 凭证 | 端点 | 何时投递 |
 |------|------|------|---------|
-| **服务器 API 上报**（默认含义）| `STOCK_REVIEW_API_KEY`（`xntk_` 前缀）| `https://xiaoniu.tech/api/stock/reviews` POST | cron 生成复盘后由 `stock_review_cli.py report` 调用 |
+| **服务器 API 上报**（默认含义）| `STOCK_REVIEW_API_KEY`（`xntk_` 前缀）| v2 起从 `review.upload.webhook.url` / `webhook.token` 读取，默认 `https://xiaoniu.tech/api/stock/reviews` POST | cron 生成复盘后由 `stock_review_cli.py report` 调用 |
 | **QQ Bot 消息推送** | QQ Bot App ID + 配对用户 openid | Hermes Gateway `hermes send` | cron 任务 `deliver=qqbot:<openid>` 直接由 scheduler 投递 |
 
 **用户语义映射**：

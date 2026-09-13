@@ -79,8 +79,8 @@ skill 当前 1836 行的 SKILL.md 中，**cron 必跑的样板代码累计 ~240 
 
 **输入**：`python3 resolve_api_key.py`
 
-**读取优先级**：
-1. `~/.hermes/skills/stock-review-skill/config.yml` 中 `review.upload.apiKey`
+**读取优先级**（v2 起）：
+1. `~/.hermes/skills/stock-review-skill/config.yml` 中 `review.upload.webhook.token`（v2 起新字段）；兼容 `review.upload.apiKey`（旧字段）
 2. `~/.profile` 中 `export STOCK_REVIEW_API_KEY='...'` 或 `"..."`（自动兼容单/双引号）
 3. `~/.bashrc` 同上（仅当 ~/.profile 无值，作为 fallback）
 

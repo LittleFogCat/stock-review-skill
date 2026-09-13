@@ -314,10 +314,11 @@ python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声�
 ## 4. 输入约定
 
 ### 4.1 通用规则
-- 若 `config.yml` 中的 `review.upload.enabled=true`，或用户通过命令行/环境变量显式启用了上传，则执行上报前必须先确认 apiKey 已配置。
-- 若已启用上传且本地尚未持久化 `STOCK_REVIEW_API_KEY`，必须先运行 `python ./scripts/stock_review_cli.py set-api-key`。
-- 不要把 apiKey 直接写入自然语言回复、日志、markdown、JSON 或命令行历史。
-- `apiKey`、`token` 与 `STOCK_REVIEW_API_KEY` 指代同一份接口凭证。
+- 若 `config.yml` 中的 `review.upload.enabled=true`，或用户通过命令行/环境变量显式启用了上传，则执行上报前必须先确认 token（Bearer Token）已配置。
+- 若已启用上传且本地尚未持久化 token，必须先运行 `python ./scripts/stock_review_cli.py set-webhook-token <token>`（v2 起推荐）；老命令 `set-api-key` 仍能跑（已 deprecation，会同时写环境变量 + webhook.token）。
+- v2 起的 token 来源优先级：`--api-key` CLI 参数 > `$STOCK_REVIEW_API_KEY` 环境变量 > `config.yml` 的 `review.upload.webhook.token`（> `review.upload.apiKey` 兼容回退）。
+- 不要把 token 直接写入自然语言回复、日志、markdown、JSON 或命令行历史。
+- `token`、`apiKey` 与 `STOCK_REVIEW_API_KEY` 指代同一份接口凭证。
 
 ### 4.2 当日复盘
 - 默认执行当日复盘；若用户明确指定日期，则执行历史复盘。
@@ -358,7 +359,7 @@ python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声�
 ### 6.1 通用步骤
 1. 确定运行模式（当日复盘 / 早盘快报）和复盘对象日期。
    - **交易日判断**：先调 `python scripts/is_trading_day.py <date>`，返回 0（交易日）→ 进入步骤 2；返回 1（非交易日）→ 早盘快报仍可生成但需标注「A股休市」，当日复盘应跳过或输出「今日休市，无盘面数据」；返回 2（无法判断）→ 回退到 [`references/holiday_detection.md`](./references/holiday_detection.md) 备用方案。
-2. 读取 `config.yml` 确认上传是否启用；若启用，确认 apiKey 已配置。
+2. 读取 `config.yml` 确认上传是否启用；若启用，确认 token 已配置（优先 `review.upload.webhook.token`，兼容旧 `review.upload.apiKey` 或 `$STOCK_REVIEW_API_KEY`）。
 3. 收集对应模式所需的数据（见下方各模式步骤）。
 4. 生成 markdown + JSON。
 5. **JSON 类型验证（强制）**：对照 [`references/review_model.md`](./references/review_model.md) 字段表和 [`references/review_api.md`](./references/review_api.md)「常见错误码与排错」章节，逐字段检查类型是否符合 API 期望。
@@ -457,7 +458,7 @@ python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声�
 - 若用户只需要单个字段说明或接口细节，可直接读取相应资源文件，而不必执行完整流程。
 - 本 skill 中的 `token` 与 `apiKey` 指代同一份接口凭证。
 - 是否执行真实上报由 `config.yml` 中的 `review.upload.enabled` 控制；当其为 `false` 时，允许以“生成 markdown 与 JSON、跳过上报”作为完成态。
-- 只有在启用上传时，agent 才必须先满足 apiKey 前置条件，再走脚本上报路径；未启用上传时，不得凭空要求用户提供 apiKey。
+- 只有在启用上传时，agent 才必须先满足 token 前置条件，再走脚本上报路径；未启用上传时，不得凭空要求用户提供 token。
 - 如果事实依据不足，允许输出"未确认"或直接省略该条，不允许为了完整性伪造事实。
 - **Git 提交规则**：本 skill 的修改提交时，「提交」默认指 `commit + push`（推送到 `https://github.com/LittleFogCat/stock-review-skill.git`）。仅当明确说「提交到本地」时才只 commit 不 push。
 

@@ -71,9 +71,14 @@ git rm --cached config.yml
 review:
     upload:
         enabled: false
-        apiUrl: "https://xiaoniu.tech/api/stock/reviews"
-        apiKey: ""
+        # apiUrl / apiKey 已迁移到 webhook.url / webhook.token；旧字段保留兼容读取
         timeoutSeconds: 30
+        webhook: # 主上报目标 + 推送配置容器
+            enabled: false
+            url: "https://xiaoniu.tech/api/stock/reviews"
+            token: ""
+            secret: ""
+            maxRetries: 3
     local:
         doc:
             enabled: true
@@ -83,7 +88,7 @@ review:
             path: "/usr/local/files/docs/stock"
 ```
 
-其中，CLI 当前真正会读取的是 `review.upload.enabled`、`review.upload.apiUrl`、`review.upload.apiKey` 和 `review.upload.timeoutSeconds`；`review.local.*` 目前只保留为本地落盘配置预留字段，当前脚本不会消费它们。只有当 `review.upload.enabled=true`，或被命令行/环境变量显式开启上传时，才需要配置 apiKey。
+其中，CLI 当前真正会读取的是 `review.upload.enabled`、`review.upload.timeoutSeconds` 和 `review.upload.webhook.{url,token,secret,maxRetries,enabled}`；旧的 `review.upload.apiUrl` / `review.upload.apiKey` 仍能读（兼容回退路径，但优先级低于 `webhook.url` / `webhook.token`）。`review.local.*` 目前只保留为本地落盘配置预留字段，当前脚本不会消费它们。只有当 `review.upload.enabled=true`，或被命令行/环境变量显式开启上传时，才需要配置 token。
 
 如果没有检测到 `config.yml`，CLI 会直接使用与 `config.example.yml` 对齐的默认参数；也就是说，`config.example.yml` 既是示例，也是默认配置基线。
 
@@ -92,8 +97,8 @@ review:
 可覆盖的运行时参数包括：
 
 - `--config-file` > `STOCK_REVIEW_CONFIG_FILE` > `./config.yml`
-- `--api-url` > `STOCK_REVIEW_API_URL` > `review.upload.apiUrl` > 内置默认 API 地址
-- `--api-key` > `STOCK_REVIEW_API_KEY` > `review.upload.apiKey` > 无默认值
+- `--api-url` > `STOCK_REVIEW_API_URL` > `webhook.url` > `upload.apiUrl`（兼容）> 内置默认 API 地址
+- `--api-key` > `STOCK_REVIEW_API_KEY` > `webhook.token` > `upload.apiKey`（兼容）> 无默认值
 - `--timeout-seconds` > `STOCK_REVIEW_API_TIMEOUT_SECONDS` > `review.upload.timeoutSeconds` > `30`
 - `--upload-enabled` / `--upload-disabled` > `STOCK_REVIEW_UPLOAD_ENABLED` > `review.upload.enabled` > `false`
 
@@ -123,14 +128,22 @@ python scripts/stock_review_cli.py show-webhook
 
 ## 首次使用与鉴权
 
-只有当配置启用了上传时，apiKey 才是上报流程的前置要求；若未启用上传，则可以只生成本地 markdown 和 JSON，而不必配置 apiKey。
+只有当配置启用了上传时，token（Bearer Token）才是上报流程的前置要求；若未启用上传，则可以只生成本地 markdown 和 JSON，而不必配置 token。
 
-当 `review.upload.enabled=true`，或通过命令行/环境变量显式启用上传时，agent 才需要确认用户已提供 apiKey，并在本地持久化为环境变量 `STOCK_REVIEW_API_KEY`。
+当 `review.upload.enabled=true`，或通过命令行/环境变量显式启用上传时，agent 才需要确认用户已提供 token，并写入 `config.yml` 的 `review.upload.webhook.token`。
 
-推荐命令：
+**推荐命令**（v2 起）：
+
+```text
+python ./scripts/stock_review_cli.py set-webhook-token <token>     # 写 token 到 config.yml
+python ./scripts/stock_review_cli.py set-webhook-url <url>        # 写主上报目标到 config.yml
+```
+
+兼容旧命令（仍能跑，但已 deprecation，会同时写环境变量 + webhook.token）：
 
 ```text
 python ./scripts/stock_review_cli.py set-api-key
+# stderr: WARNING: 'set-api-key' is deprecated; prefer 'set-webhook-token' ...
 ```
 
 - 脚本会在终端中安全提示用户输入 apiKey，并将其持久化到本地环境变量 `STOCK_REVIEW_API_KEY`。
