@@ -136,7 +136,7 @@ for pattern, label in [
 
 **⚠️ 2026-07-31 补充：cron 模式下用 browser_console 替代 Python urllib**：在 cron 模式下 Python `urllib.request` 可能 hang（见 SKILL.md「Python urllib HTTP 请求在 cron 模式下 hang」陷阱），此时改用 browser_navigate + browser_console 扫描首页链接更可靠。
 
-**⚠️ 2026-07-15 重要纠正：browser_console `fetch()` 被安全策略拦截**：上述 browser_console 方案**仅适用于 DOM 检查**（`document.querySelectorAll('a')` 等读取已加载页面内容的操作）。browser_console 中执行 `fetch()` 发起网络请求会被安全策略拦截，报错 `Blocked: sensitive browser JavaScript primitive (network request)`。如需从浏览器环境调东财/腾讯 API，**不可使用 browser_console fetch**，仍需用 Python urllib 或 curl。详见 `references/data-source-status-2026-07-15.md`。
+**⚠️ 2026-07-15 重要纠正：browser_console `fetch()` 被安全策略拦截**：上述 browser_console 方案**仅适用于 DOM 检查**（`document.querySelectorAll('a')` 等读取已加载页面内容的操作）。browser_console 中执行 `fetch()` 发起网络请求会被安全策略拦截，报错 `Blocked: sensitive browser JavaScript primitive (network request)`。如需从浏览器环境调东财/腾讯 API，**不可使用 browser_console fetch**，仍需用 Python urllib 或 curl。详见 `references/data-source-matrix.md`「browser_console 的限制」节。
 
 ```javascript
 // browser_console expression（在 browser_navigate("https://finance.sina.com.cn/stock/") 之后执行）
