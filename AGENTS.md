@@ -4,10 +4,6 @@ This file provides guidance to Codex (Codex.ai/code) when working with code in t
 
 ## 这是什么
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
-
-## 这是什么
-
 `stock-review-skill` 是一个可分发的通用 Agent Skill 包,根目录就是 skill 内容本身。`SKILL.md` 是宿主加载的入口,定义核心约束、工作模式、执行流程。
 
 **三种工作模式**:当日复盘(15:15)、早盘快报(8:00)、快速股价查询。详细触发判断见 `SKILL.md` 第 2-3 节。
