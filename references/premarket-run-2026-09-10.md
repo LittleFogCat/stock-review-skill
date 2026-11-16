@@ -21,7 +21,7 @@ Sina 首页 `finance.sina.com.cn/stock/` 拉 `<a>` 链接筛选 `href` 含 `/cpb
 
 ## API key 检测（再次验证「取最长候选」陷阱）
 - 从 `state.db` + `.hermes_history` grep `xntk_` 收集候选，逐候选 POST 最小合规 payload 测试
-- **有效 key 是 len=37 的 `xntk_tCJP…Ow8bYP`（code=200）**，多个 len=40 候选均 401
+- **当时有效 key 是 len=37（值已脱敏；2026-11-16 已轮换作废，勿使用）**，多个 len=40 候选均 401
 - 再次确认：必须逐个实测，不能按长度/suffix 猜测
 
 ## 上报

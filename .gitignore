@@ -1,3 +1,11 @@
+# 本地凭证与配置（绝不入库）
 config.yml
+config.yml.*
+.env
+.env.*
+!.env.example
+*.bak
+
+# 本地工具/笔记
 .claude
 .ai

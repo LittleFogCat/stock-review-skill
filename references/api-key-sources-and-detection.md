@@ -2,11 +2,13 @@
 
 cron 模式下无 shell 环境变量继承，上报 xiaoniu.tech 需要自动获取 `xntk_` API key。本文是 **API key 反查的唯一权威记录**（含来源优先级、反查路径、去伪过滤、逐个 POST 验证），其他文件如遇 key 问题一律引用本文。
 
+> ⚠️ **安全提示（2026-11-16）**：本文件历史版本曾包含明文 API key，该 key 已泄露，**以服务端轮换/吊销为准**。本仓库不再记录任何完整 key；真实 key 只允许放本机环境变量（`STOCK_REVIEW_API_KEY` / `STOCK_REVIEW_WEBHOOK_TOKEN`）或本地未跟踪的 `.env`，禁止写入文档、日志、提交历史。下文所有完整 `xntk_` 值均为历史记录、已作废，不要再直接使用；常规取 key 请直接读本机环境变量。
+
 ## key 来源优先级（cron）
 
-1. `~/.profile` 的 `export STOCK_REVIEW_API_KEY='xntk_...'`（cron 不继承，需手动 source 或读文件）
-2. `agent.log*` 反查完整 `xntk_` key（最可靠 fallback）
-3. `config.yml` 的 `review.upload.apiKey`
+1. 本机未跟踪的 `.env` / `~/.profile`：`export STOCK_REVIEW_API_KEY=...`（v2 用 `STOCK_REVIEW_WEBHOOK_TOKEN` 亦可；cron 不继承，需 `set -a; . /path/.env; set +a` 或手动 source）
+2. `config.yml` 的 `review.upload.webhook.token`（本地文件，已 .gitignore）
+3. `agent.log*` / `state.db` 反查（**仅历史排障**；2026-11-16 起旧 key 已轮换作废，不要再用日志里的值）
 
 **⚠️ config.yml 的 key 可能是脱敏占位符**：`~/.hermes/skills/stock-review-skill/config.yml` 的 `review.upload.apiKey` 若为 `xntk_...bYP` 形式的脱敏占位符，cron 模式无环境变量、无用户在场时需先反查真实 key 才能上报。
 
@@ -36,7 +38,7 @@ apiKey: ***   # 脱敏占位符，不可用
 ## ⚠️ 反查必须取「最长」候选，禁止按后缀过滤（2026-08-20 踩坑）
 
 **事故**：写 `if not c.endswith(("xxxx","bYP"))` 过滤脱敏占位符，但真实 key
-`xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP` 本就以 `bYP` 结尾 → 真 key 被过滤 → `key_len=0`
+（37 位，`xntk_tCJ…8bYP`，完整值已作废、不入库）本就以 `bYP` 结尾 → 真 key 被过滤 → `key_len=0`
 → POST 返回 `HTTP 200 + code=401 未登录或登录已失效`。
 
 **根因**：脱敏占位符 `xntk_...bYP` 与真实 key 共享结尾 `bYP`，按后缀判断会被真 key 误伤。
@@ -56,13 +58,13 @@ for base in ["/root/.hermes/logs/agent.log", "/root/.hermes/logs/agent.log.1"]:
 KEY = max(candidates, key=len)   # 取最长即真实 key（占位符明显更短）
 ```
 
-**附**：本服务器真实 key 完整值 `xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP`（如需可直用）。
+**附**：真实 key 完整值**只允许**放本机环境变量（`STOCK_REVIEW_API_KEY` / `STOCK_REVIEW_WEBHOOK_TOKEN`）或本地未跟踪 `.env`，**禁止写入本仓库**。历史明文已于 2026-11-16 视为泄露，以服务端轮换结果为准。
 
 ## ⚠️「取最长」启发式在多候选时会选错 key（2026-08-21 实测增补）
 
 **事故**：state.db（`strings /root/.hermes/state.db | grep -oE 'xntk_[A-Za-z0-9_-]{10,}'`）反查到**多个候选**，其中**两个都 `/bYP` 结尾**：
-- 40 字符 `xntk_tCJPFte8wMHePAc6f3rKZAjY8LqSwOw8bYP` —— **旧/失效 key**
-- 37 字符 `xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP` —— **当前有效 key**
+- 40 字符 `xntk_tCJPFte8…8bYP` —— **旧/失效 key**
+- 37 字符 `xntk_tCJPFdRM…8bYP` —— **当时有效 key（2026-11-16 已轮换作废）**
 
 按上文「取最长」规则选了 40 字符那个 → `POST code=401 未登录或登录已失效`；换 37 字符 → `code=200` 上报成功（_id `6a8796b7d8fb636607906b73`）。
 
@@ -96,8 +98,8 @@ ctx.verify_mode = ssl.CERT_NONE
 **排除法**：看到 `ERR:<urlopen error [SSL: CERTIFICATE_VERIFY_FAILED]...` 先给 `urlopen` 加 `context=ctx`
 再重测，**不要**据此推断「候选全部失效 / 服务器不可达」。加上 context 后候选才显出真实的 401 vs 200。
 
-**本服务器当前有效 key（2026-08-24 复核）**：`xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP`（**len=37**，非 40）。
-含 `tCJPFte8` 前缀的 40 字符 key 已失效返回 401；**诊断 401 时不要把「37 字符」当成 key 过短**——它恰好是当前有效 key。
+**历史记录（2026-08-24 复核，key 现已轮换）**：当时有效 key 为 37 位（`xntk_tCJ…8bYP`，非 40），**该值已于 2026-11-16 作废，完整值不在仓库保存**。
+含 `tCJPFte8` 前缀的 40 字符 key 当时已失效返回 401；**诊断 401 时不要把「37 字符」当成 key 过短**——当时的有效 key 就是 37 位。
 
 ## ⚠️ 候选池须先「去伪」再逐个 POST 测试（2026-08-26 实测）
 
@@ -118,15 +120,15 @@ for p in ["~/.hermes/state.db", "~/.hermes/.hermes_history"]:
             continue
         candidates.add(v)
 # 本服务器去伪后仍残留 9 个真候选（长度 15~40 不等）
-# 逐个 POST（带 SSL 旁路 context）测 code=200，首个命中的 len=37 key 即当前有效 key
+# 逐个 POST（带 SSL 旁路 context）测 code=200，首个命中的 len=37 key 即当时有效 key
 ```
 
 **关键点**：
 1. **必须先过滤再测试**——22→9 的降噪把「逐个 POST」从 22 次减到 9 次，且避免垃圾串因 SSL 错误干扰判断。
 2. **不能只用 `max(len)`**——本服务器存在 40 字符（失效 `tCJPFte8`）与 37 字符（有效 `tCJPFdRM`）两个同尾 `bYP` 真候选，取最长会选中失效 key。实测**首个 POST 命中 `code=200` 的就是 len=37**。
-3. **SSL 旁路 context 在候选测试一样要加**（证书过期，见下一节）。本会话 2026-08-26 复核：有效 key 仍是 len=37 `xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP`，40 字符已失效。
+3. **SSL 旁路 context 在候选测试一样要加**（证书过期，见下一节）。本会话 2026-08-26 复核：当时有效 key 仍是 len=37（`xntk_tCJ…8bYP`），40 字符已失效。
 
-**2026-09-04 再复核**：同一把正则（`xntk_[A-Za-z0-9_-]+`）从 state.db/.hermes_history 再次采到 20+ 个原始候选，混入的垃圾与 08-26 完全同型——`xntk_unknown`、`xntk_xxx`、`xntk_key`、`xntk_xxxx`、以及大量短截断碎片（`xntk_t` len6、`xntk_tC` len7 等）。**未过滤直接逐个 POST 时这些垃圾全部返回 code=401**（无害但不必要地消耗 round-trip，且多了 20+ 条测试记录）。effective key 仍为 **len=37 `xntk_tCJPFdRM3tBdRYsytvAZ9G8RuWOw8bYP`（code=200）**，多个 len=40 候选仍 401——**该 key 已连续 3+ 个月稳定未轮转，可优先直用；「去伪后逐个 POST」过滤建议持续有效**。
+**2026-09-04 再复核**：同一把正则（`xntk_[A-Za-z0-9_-]+`）从 state.db/.hermes_history 再次采到 20+ 个原始候选，混入的垃圾与 08-26 完全同型——`xntk_unknown`、`xntk_xxx`、`xntk_key`、`xntk_xxxx`、以及大量短截断碎片（`xntk_t` len6、`xntk_tC` len7 等）。**未过滤直接逐个 POST 时这些垃圾全部返回 code=401**（无害但不必要地消耗 round-trip，且多了 20+ 条测试记录）。effective key 曾为 len=37（`xntk_tCJ…8bYP`，code=200），多个 len=40 候选仍 401。**该 key 已于 2026-11-16 轮换作废**；「去伪后逐个 POST」过滤方法仅保留为历史记录，常规取 key 请直接读本机 `.env`/环境变量。
 
 ## 401 后诊断顺序
 
