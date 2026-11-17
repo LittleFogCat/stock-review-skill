@@ -243,7 +243,7 @@ with open(f"/usr/local/files/docs/stock/{date_str}-早盘快报.json", "w") as f
    - `focusStocks[].stocks` 是数组
 2. **标题正则匹配**：`re.match(r"^\d{4}年\d{1,2}月\d{1,2}日早盘快报$", title)`
 3. **必填字段非空**：`focusSectors` 和 `focusStocks` 都必须存在且非空
-4. **Token 预检**：先用 `{"date": date, "content": "ping"}` 测试 API 鉴权
+4. **Token 预检（只读不落库）**：用 `{"date": date}`（**不含 content**）测试 API 鉴权 → `code 400 未提供文章内容` = 有效，`code 401` = 失效；**禁止**用含 content 的 ping payload（会创建垃圾记录）
 5. **完整上报**：返回 `code: 200` 才算成功
 6. **final response 原样回读**：用 `read_file` 读 .md 文件，原样输出全部正文——禁止只写摘要
 

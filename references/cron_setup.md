@@ -124,7 +124,7 @@ cronjob action=update job_id=<id> model='{"model":"deepseek-v4-flash","provider"
 1. 用户提供新 token（`xntk_` 前缀）
 2. 同步更新两处：`~/.profile`（`export STOCK_REVIEW_API_KEY=...`，兼容旧路径）与 `config.yml`（v2 起改用 `review.upload.webhook.token: "..."`，旧字段 `review.upload.apiKey` 仍兼容读取）。推荐跑 `python scripts/stock_review_cli.py set-webhook-token <新token>` 一键迁移
 3. **重要**：`~/.profile` 是 Hermes 受保护凭据文件，`patch` 工具会拒绝编辑（`Write denied: protected system/credential file`），必须用 `terminal` + Python/sed 更新
-4. 用最小 payload 预检：`{"date":"YYYY-MM-DD","content":"ping"}` → HTTP 200 + code 400 = token 有效（格式错误是好信号！表示鉴权已通过）
+4. 用**不含 content** 的最小 payload 预检：`{"date":"YYYY-MM-DD"}` → HTTP 200 + code 400（"未提供文章内容时，市场总览不能为空"）= token 有效且**不落库**；**禁止**用含 content 的 ping payload（会创建垃圾记录）
 5. 确认 token 有效后再跑完整复盘流程
 
 ## Gateway 健康看门狗（推荐配套部署）
@@ -438,7 +438,7 @@ stock-review-skill 的"推送/上报"体系有两个完全独立的目的地：
 2. **绝对禁止**：仅凭 context 中看到截断的输出或「FAILED」字样就推断主任务失败——必须以磁盘上文件是否存在为准。
 
 3. **重试时**（仅在文件不存在时）：
-   - token 预检：先用最小 payload `{"date":"YYYY-MM-DD","content":"ping"}` POST 到 xiaoniu.tech API，确认 code 400（鉴权通过）后再生成完整报告。code 401 立即告知用户 token 过期。
+   - token 预检（只读不落库）：先用不含 content 的最小 payload `{"date":"YYYY-MM-DD"}` POST 到 xiaoniu.tech API，确认 code 400（"未提供文章内容时，市场总览不能为空"，鉴权通过且不产生记录）后再生成完整报告。code 401 立即告知用户 token 过期；**禁止**用含 content 的 ping payload（会创建垃圾记录）。
    - 数据采集顺序（与主任务相同）：Sina /tob/ 文章 → 东财 push2 API → 腾讯 API 个股
    - JSON 类型验证：构建后逐字段对照 review_model.md（markets 是对象、todayHot 是对象、changePercent 是 number、focusSectors/focusStocks 不包含）
    - API 上报：用 Python 脚本（write_file → `python3 /tmp/upload.py`），不要用 inline `python3 -c`（cron 模式会被拦截）

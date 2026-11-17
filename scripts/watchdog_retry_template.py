@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""看门狗重试标准流程模板 — 检查文件 → token 预检 → 数据采集 → JSON 构建 → 上报。
+"""看门狗重试标准流程模板 — 检查文件 → token 预检（只读不落库）→ 数据采集 → JSON 构建 → 上报。
 
 用法：
     1. 复制此文件到 /tmp/watchdog_review.py
@@ -67,13 +67,14 @@ def get_api_key():
 
 
 def precheck_token(api_key):
-    """用最小 payload 测试 token 有效性。返回 True 表示可继续。"""
+    """用不含 content 的最小 payload 做只读预检（服务端在落库前拒绝，不产生记录）。返回 True 表示可继续。"""
     if not api_key:
         print("[ERROR] API key 未配置", file=sys.stderr)
         return False
     print(f"[INFO] API key length: {len(api_key)}, prefix: {api_key[:10]}")
 
-    data = json.dumps({"date": DATE, "content": "ping"}).encode('utf-8')
+    # 只读预检：不含 content，鉴权通过后服务端在落库前返回 400，不会创建垃圾记录
+    data = json.dumps({"date": DATE}).encode('utf-8')
     req = urllib.request.Request(
         API_URL, data=data,
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {api_key}"},
@@ -90,11 +91,11 @@ def precheck_token(api_key):
         code = result.get('code', -1)
         msg = result.get('msg', '')
         if code == 200:
-            print(f"[INFO] Token 完全有效（code 200）")
+            print("[WARN] 预检返回 code 200 —— payload 可能已被当成完整记录写入；请确认预检 payload 不含 content", file=sys.stderr)
             return True
         elif code == 400:
-            # 鉴权通过但 payload 格式问题 — 这是好信号
-            print(f"[INFO] Token 有效（code 400 鉴权通过: {msg}）")
+            # 鉴权通过、但内容校验失败 — 只读预检的正确信号（不会落库）
+            print(f"[INFO] Token 有效（code 400 鉴权通过，未落库: {msg}）")
             return True
         elif code == 401:
             print(f"[ERROR] Token 已过期: {msg}", file=sys.stderr)

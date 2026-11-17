@@ -41,12 +41,13 @@ curl -sk -X POST "https://xiaoniu.tech/api/stock/reviews" \
 ## ⚠️ key 自动检测也会被 SSL 卡住（2026-08-26 补录）
 `test_api_keys.py` 及任何用 urllib 批量 POST 候选 key 的脚本，同样会撞 SSL `CERTIFICATE_VERIFY_FAILED`，导致每个候选都返回 `ERR:` 而非 code，脚本误报「NO_VALID_KEY / FAIL: 未找到有效 API key」。
 **这不是 key 无效，是 SSL 卡在 TLS 层（先于 HTTP 401/200）。** 误判后不要跑去重置 key 或打扰主人。
-**解决办法**：对单个候选 key 用 `curl -sk` POST 最小合规 payload 验证 `code=200`：
+**解决办法**：对单个候选 key 用 `curl -sk` POST **不含 content** 的只读 payload 验证（401=无效，400=鉴权通过；**不落库**）：
 ```bash
 curl -sk -X POST "https://xiaoniu.tech/api/stock/reviews" \
   -H "Content-Type: application/json" -H "Authorization: Bearer $KEY" \
-  -d '{"date":"2026-08-26","content":"ping"}' --max-time 20
-# 返回 {"code":200,...} = 该 key 有效（SSL 忽略后 code=200 即鉴权通过）
+  -d '{"date":"2026-08-26"}' --max-time 20
+# 返回 {"code":400,"msg":"未提供文章内容时，市场总览不能为空"} = key 有效（鉴权通过、未落库）
+# 返回 {"code":401,...} = key 无效/失效；切勿用含 content 的 payload（会写入垃圾记录）
 ```
 2026-08-26 实测：urllib 对两个候选 key 均报 SSL ERR → 误判 NO_VALID_KEY；改用 curl -sk + 硬编码 key 的 /tmp/do_upload.sh 后完整 payload code=200 上报成功（`_id=6a8e93e3d8fb636607906c57`）。
 

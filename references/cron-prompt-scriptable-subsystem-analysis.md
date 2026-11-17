@@ -106,11 +106,11 @@ skill 当前 1836 行的 SKILL.md 中，**cron 必跑的样板代码累计 ~240 
 
 **内部步骤**：
 1. 调 `resolve_api_key.py` 获取 key
-2. 先 POST 最小 payload `{"date":"...","content":"ping"}` 做 token 预检
-3. code 200 → 继续完整 payload
+2. 先 POST **不含 content** 的最小 payload `{"date":"..."}` 做只读 token 预检（不落库）
+3. code 400（"未提供文章内容时，市场总览不能为空"）→ token 有效，继续完整 payload
 4. code 401 → 输出 `TOKEN_EXPIRED`，exit 2
-5. code 400 → token 有效但格式不对（已通过鉴权），exit 4
+5. code 200 → 异常：预检 payload 被当成记录写入（禁止；检查 payload 是否含 content），exit 4
 6. ConnectionError → 输出 `SERVER_DOWN`，exit 3
 
 **事故根治理由**：
-- 内置 token 预检（先 ping 最小 payload），避免完整复盘生成后才发
+- 内置 token 预检（先只读预检：不含 content 的 payload），避免完整复盘生成后才发，同时不产生垃圾记录

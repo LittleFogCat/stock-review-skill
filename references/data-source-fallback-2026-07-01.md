@@ -268,8 +268,8 @@ python3 /tmp/fetch_stocks.py > /tmp/stocks.txt
 # Step 5: 生成报告
 python3 /tmp/generate_report.py  # 写 .md + .json
 
-# Step 6: token 预检（ping payload）
-python3 /tmp/token_ping2.py  # 必须看到 code 200 或 code 400（不是 401）
+# Step 6: token 预检（不含 content，只读不落库）
+python3 /tmp/token_precheck.py  # 必须看到 code 400（不是 401；若出现 200 说明误写了记录）
 
 # Step 7: 上报
 python3 /tmp/upload_review.py  # POST 完整 JSON

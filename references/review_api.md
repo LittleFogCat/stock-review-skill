@@ -437,21 +437,21 @@ for idx in data["markets"]["indices"]:
 
 **反推结论**：该 API server 对当日复盘和早盘快报使用同一个 endpoint，依赖**客户端提交时是否带 focus 数据**来区分模式。当日复盘省略 → server 自动补空数组；早盘快报正常填 → server 正常存储。无需客户端特殊处理。
 
-### Token 预检 ping payload 模式（2026-06-25 验证）
+### Token 预检（只读、不落库；2026-11-17 修订）
 
-上报前用最小 payload 做 token 鉴权预检，避免完整复盘生成后才发现 token 过期浪费 LLM 调用：
+上报前做 token 鉴权预检，避免完整复盘生成后才发现 token 失效。**预检 payload 决不能含 `content`**——服务端鉴权通过后会进入创建逻辑，`content` 非空会直接落库（历史 ping payload 因此产生过 65+ 条垃圾记录）。
 
 ```bash
-# 上报到 xiaoniu.tech
+# 只读预检：不含 content，服务端在落库前返回 400，不会创建记录
 curl -X POST "https://xiaoniu.tech/api/stock/reviews" \
   -H "Content-Type: application/json" \
   -H "Authorization: Bearer ${STOCK_REVIEW_API_KEY}" \
-  -d '{"date":"2026-06-25","content":"ping"}'
+  -d '{"date":"2026-06-25"}'
 ```
 
-- 返回 `HTTP 200 + code 200` → token 完全有效
-- 返回 `HTTP 200 + code 401` → token 过期，立即告知用户
-- 返回 `HTTP 200 + code 400 + msg: "市场总览格式错误"`（或类似）→ **token 有效但 payload 格式不对**（这是好信号——鉴权已通过，只是 ping 缺字段）
+- 返回 `HTTP 200 + code 400 + msg:"未提供文章内容时，市场总览不能为空"` → **token 有效**（鉴权已通过，且在落库前被拒，不产生记录）
+- 返回 `HTTP 200 + code 401` → token 无效/过期，立即告知用户
+- 返回 `HTTP 200 + code 200` → **预检 payload 写错了**：已经被当成一条记录写入（禁止），立即排查 payload 是否含 content
 - 返回 `Connection refused` → 服务器不可达
 
-**经验**：本次复盘实际收到 `code 400 "市场总览格式错误"`，证明鉴权通过，继续生成完整 JSON 上报最终成功。**不要因为 code 400 就放弃——必须看 msg 内容判断是格式问题还是鉴权问题。**
+**历史教训（勿重犯）**：旧版文档推荐 `{"date":"...","content":"ping"}`。该 payload 的 `content` 非空 → 服务端 `createStockReview` 不触发"未提供文章内容"校验，`generateMissingReviewFields` 再自动补齐缺失字段 → 返回 `code=200` 并**落库**。因此它从来不是"只读预检"，而是"每次预检写一条垃圾记录"。**禁止再用。**

@@ -136,7 +136,7 @@ python scripts/anti_fabrication.py check-claims claims.json   # 校验量化声�
 - **股价查询必须输出三条核心数据：现价、涨跌幅（%）、涨跌额（绝对值）。** 三列缺一不可，不可用「—」或「N/A」占位。境外股票用 Yahoo Finance API，A 股用腾讯行情 API。
 
 ### 1.8 上报约束
-- **token 预检必须在完整复盘生成之前完成。** 先用最小 payload（`{"date":"...","content":"ping"}`）POST 测试，确认 code 400（鉴权通过）后再生成完整报告。code 401 立即告知用户 token 过期。
+- **token 预检必须在完整复盘生成之前完成，且必须"只读不落库"。** 用**不含 `content` 的最小 payload**（`{"date":"YYYY-MM-DD"}`）POST 测试：返回 `code 400 + msg:"未提供文章内容时，市场总览不能为空"` = 鉴权通过（**服务端在落库前拒绝，不会产生记录**）；返回 `code 401` = token 失效/过期，立即告知用户。**⚠️ 严禁用 `{"date":"...","content":"ping"}` 或任何"最小合规 payload"做预检**——`content` 非空会通过服务端校验并**创建垃圾记录**（2026-11 审计已发现 65+ 条此类垃圾数据）。
 - **JSON 中必须包含 `type` 字段**：早盘快报填 `1`，当日复盘填 `2`。2026-06-29 实测 API 要求必填——缺失返回 code 400 "type 字段必须为 0（自动）、1（早盘快报）或 2（今日复盘）"。在 Python 脚本生成 JSON 时添加 `data["type"] = 1`（或 `2`）再 `json.dump`。
 - **API 上报方式（按优先级）**：
     - **首选：Python 脚本上报（cron 模式下推荐）** — `write_file` 写入 Python 脚本到 `/tmp/upload.py`，用 `urllib.request` 发送 POST，API key 从 `~/.profile` 逐行读取。无 shell 变量替换问题，无 `Bad substitution` 风险。2026-06-26 早盘快报实测验证通过。
@@ -508,7 +508,7 @@ JRJ 首页 `stock.jrj.com.cn/` 仅返回 12-13KB 死页面无数据栏目；子�
 - 东财 push2 API：2026-07-01 起不可用
 - JRJ 首页：死页面，已放弃
 - Cron 空闲超时：600s 模型 API hang → Gateway 看门狗
-- Token 预检：上报前 ping payload 避免浪费 LLM 调用
+- Token 预检：上报前用 `{"date":"YYYY-MM-DD"}`（**不含 content**）POST，避免浪费 LLM 调用且不产生记录
 - `no_agent=true` 脚本：stdout 即投递，异常才输出
 
 ### 9.12 Cron 部署层细节（参考 `references/cron_setup.md`）

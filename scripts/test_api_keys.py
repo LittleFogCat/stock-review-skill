@@ -16,9 +16,10 @@
   python3 test_api_keys.py --all      # 列出所有候选及其鉴权结果
 输出: 每个候选的 len / HTTP / code；末尾打印 VALID_KEY=<key> 供调用方捕获。
 
-与 ping payload 的区别: 必须用"最小合规 payload"（含 markets/todayHot/news/
-focusSectors/focusStocks 各一字段），因为 ping payload 返回 401 与 token 过期同错误码，
-无法区分。完整 payload 返回的 code 才是真实鉴权态。
+预检必须"只读不落库"（2026-11-17 修订）：不要再使用含 content 的 ping payload 或
+"最小合规 payload"（它们会通过校验并创建垃圾记录，历史已产生 65+ 条）。改用不含 content
+的 payload `{"date": "2099-01-01"}`：无效 key -> 401；有效 key -> 400（鉴权通过、落库前被拒）。
+两个 code 足以区分，且永不写入数据。
 
 SSL 说明: xiaoniu.tech 证书校验对部分环境失败 (SSL: CERTIFICATE_VERIFY_FAILED)，
 故用 check_hostname=False + verify_mode=CERT_NONE 的 context（见
@@ -44,12 +45,10 @@ SOURCES = [
     os.path.expanduser("~/.profile"),
 ]
 
+# 只读预检 payload：不含 content/市场字段 → 有效 key 返回 400（鉴权通过、落库前被拒），
+# 不会像旧的"最小合规 payload"那样每测一个有效 key 就写入一条垃圾记录。
 PAYLOAD = {
-    "date": "2099-01-01", "title": "t", "type": 1, "content": "t",
-    "markets": {"summary": "t", "indices": [], "volume": "t"},
-    "todayHot": {"topSectors": [], "concepts": [], "fallingSectors": [], "summary": "t"},
-    "news": [{"category": "t", "title": "t", "content": ["t"], "source": "t"}],
-    "focusSectors": [], "focusStocks": [],
+    "date": "2099-01-01",
 }
 
 
@@ -99,9 +98,12 @@ def main():
     print("候选 key 数:", len(cands), file=sys.stderr)
     for c in cands:
         status, code, msg = test_key(c)
-        flag = " <== VALID" if code == 200 else ""
-        print(f"len={len(c)} {c} -> HTTP {status} code={code}{flag}")
-        if code == 200 and "--all" not in sys.argv:
+        # 只读预检判定：401=无效；400=鉴权通过（落库前被拒）；200=误写记录（不应出现）
+        valid = code in (200, 400)
+        flag = " <== VALID" if valid else ""
+        warn = " (⚠️ code=200 说明已写入记录)" if code == 200 else ""
+        print(f"len={len(c)} {c} -> HTTP {status} code={code}{flag}{warn}")
+        if valid and "--all" not in sys.argv:
             print("VALID_KEY=" + c)
             return 0
     print("NO_VALID_KEY")

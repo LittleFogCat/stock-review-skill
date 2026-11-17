@@ -190,7 +190,7 @@ with open(f"/usr/local/files/docs/stock/{date_str}-A股复盘.json", "w") as f:
 1. **JSON 类型验证**：用 `validate_json.py` 逐字段检查类型（markets 是对象、todayHot 是对象、changePercent 是 number）
 2. **标题正则匹配**：`re.match(r"^\d{4}年\d{1,2}月\d{1,2}日（周[一二三四五六日]）A股复盘$", title)`
 3. **不含当日复盘禁止字段**：检查 JSON 中无 `focusSectors`/`focusStocks`
-4. **Token 预检（⚠️ 2026-07-05 修订）**：**不要用 ping payload** `{"date":"...","content":"ping"}`（返回 401 与真鉴权失败同码无法区分）。改用**最小合规 payload**（含 markets/todayHot/news/focusSectors/focusStocks 各一个完整字段）POST -> code=200 鉴权通过。详见 SKILL.md「上报约束 Rule 16」
+4. **Token 预检（⚠️ 2026-11-17 修订：只读不落库）**：用**不含 content 的最小 payload** `{"date": date}` POST → `code 400 + "未提供文章内容时，市场总览不能为空"` = 鉴权通过（服务端在落库前拒绝，不产生记录）；`code 401` = token 失效。**⚠️ 禁止用 `{"date":..., "content":"ping"}` 或任何"最小合规 payload"做预检**——content 非空会通过校验并创建垃圾记录（2026-11 已清理 65+ 条）。详见 SKILL.md §1.8
 5. **完整上报**：返回 `code: 200` 才算成功
 6. **final response 精简版（⚠️ 2026-07-21 修订）**：**禁止 read_file 回读完整 .md 原文**（8-12KB 远超 QQ 4000 字符硬上限会被截断）。final response 改为**精简版**（≤3500 字符），保留标题+指数表格+板块涨跌表格+消息面精简+观察点，删除冗长分析和数据来源说明。markdown 文件仍写完整版供 API 上报 `content` 字段。详见 SKILL.md「事故 A」精简策略
 
